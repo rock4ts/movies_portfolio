@@ -1,0 +1,115 @@
+services:
+
+  redis:
+    image: redis:alpine
+
+  postgres-admin:
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=${ADMIN_POSTGRES_DB}
+      - POSTGRES_USER=${ADMIN_POSTGRES_USER}
+      - POSTGRES_PASSWORD=${ADMIN_POSTGRES_PASSWORD}
+    volumes:
+      - ./admin_panel/docker_compose/simple_project/database_dump.sql:/docker-entrypoint-initdb.d/init.sql
+      - pg_data_admin:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ADMIN_POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  admin-panel:
+    build: admin_panel/docker_compose/simple_project/app
+    volumes:
+      - static_value:/opt/app/static/
+    env_file:
+      - ./.env
+    environment:
+      - POSTGRES_DB=${ADMIN_POSTGRES_DB}
+      - POSTGRES_USER=${ADMIN_POSTGRES_USER}
+      - POSTGRES_PASSWORD=${ADMIN_POSTGRES_PASSWORD}
+    depends_on:
+      postgres-admin:
+        condition: service_healthy
+    restart: always
+
+  postgres-auth:
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=${AUTH_POSTGRES_DB}
+      - POSTGRES_USER=${AUTH_POSTGRES_USER}
+      - POSTGRES_PASSWORD=${AUTH_POSTGRES_PASSWORD}
+    volumes:
+      - pg_data_auth:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AUTH_POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  auth-app:
+    build: auth_api/
+    env_file:
+      - .env
+    command: >
+      sh -c "
+      /scripts/wait-for-it.sh postgres-auth:5432 -s -t 60 &&
+      /scripts/wait-for-it.sh redis:6379 -s -t 60 &&
+      alembic upgrade head &&
+      gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:8000
+      "
+
+  elastic-db:
+    image: "elasticsearch:8.6.2"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+      - ./content_api/elastic/es_dump:/usr/share/elasticsearch/snapshots
+    environment:
+      ES_JAVA_OPTS: "-Xms1024m -Xmx1024m"
+      discovery.type: "single-node"
+      path.repo: "/usr/share/elasticsearch/snapshots"
+      xpack.security.enabled: "false"
+      cluster.routing.allocation.disk.watermark.low: "90%"
+    healthcheck:
+      test: curl -s http://elastic-db:9200  >/dev/null || exit 1
+      interval: 20s
+      timeout: 20s
+      retries: 5
+    restart: unless-stopped 
+
+  load-elastic-index:
+    image: "elasticsearch:8.6.2"
+    restart: "no"
+    volumes:
+      - ./content_api/post-process:/scripts
+    command: ["/scripts/wait-for-it.sh", "elastic-db:9200", "-s", "-t", "60", "--", "/scripts/load_elastic_index.sh"]
+
+  content-app:
+    build: content_api/
+    env_file:
+      - .env
+    restart: unless-stopped
+    command: >
+      /scripts/wait-for-it.sh elastic-db:9200 -s -t 60 --
+      gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:8000
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - static_value:/var/www/static/
+    depends_on:
+      - auth-app
+      - content-app
+      - admin-panel
+    restart: unless-stopped
+
+volumes:
+  pg_data_auth:
+  pg_data_admin:
+  esdata:
+  static_value:
