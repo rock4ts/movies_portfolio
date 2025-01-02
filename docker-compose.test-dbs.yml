@@ -1,0 +1,70 @@
+services:
+
+  redis:
+    image: redis:alpine
+    ports:
+      - 6379:6379
+
+  postgres-admin-test:
+    image: postgres:16
+    ports:
+      - 5432:5432
+    volumes:
+      - ./admin_panel/docker_compose/simple_project/db_init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./admin_panel/docker_compose/simple_project/fw_data.ddl:${PWD}
+    environment:
+      - POSTGRES_DB=theatre
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=secret
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  postgres-auth-test:
+    image: postgres:16
+    ports:
+      - 2345:5432
+    environment:
+      - POSTGRES_DB=auth
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=secret
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  elastic-db-test:
+    image: "elasticsearch:8.6.2"
+    ports:
+      - 9200:9200
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+      - ./content_api/elastic/es_dump:/usr/share/elasticsearch/snapshots
+    environment:
+      ES_JAVA_OPTS: "-Xms1024m -Xmx1024m"
+      discovery.type: "single-node"
+      path.repo: "/usr/share/elasticsearch/snapshots"
+      xpack.security.enabled: "false"
+      cluster.routing.allocation.disk.watermark.low: "90%"
+    healthcheck:
+      test: curl -s http://elastic-db-test:9200  >/dev/null || exit 1
+      interval: 20s
+      timeout: 20s
+      retries: 5
+    restart: unless-stopped 
+
+  load-elastic-index:
+    image: "elasticsearch:8.6.2"
+    restart: "no"
+    volumes:
+      - ./content_api/post-process:/scripts
+    command: ["/scripts/wait-for-it.sh", "elastic-db-test:9200", "-s", "-t", "60", "--", "/scripts/load_elastic_index.sh"]
+
+volumes:
+  pg_data_auth:
+  pg_data_admin:
+  esdata:
