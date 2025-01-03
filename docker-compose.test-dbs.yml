@@ -1,9 +1,15 @@
 services:
 
-  redis:
+  redis-test:
     image: redis:alpine
     ports:
       - 6379:6379
+
+  tracer-test:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - 6831:6831/udp
+      - 16686:16686
 
   postgres-admin-test:
     image: postgres:16
