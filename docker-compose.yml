@@ -5,6 +5,11 @@ services:
 
   tracer:
     image: jaegertracing/all-in-one:latest
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - 16686:16686
+      - 4317:4317
 
   postgres-admin:
     image: postgres:16
@@ -54,6 +59,8 @@ services:
 
   auth-app:
     build: auth_api/
+    environment:
+      - OTEL_SERVICE_NAME=auth-app
     env_file:
       - .env
     command: >
