@@ -38,6 +38,7 @@ services:
       - POSTGRES_DB=${ADMIN_POSTGRES_DB}
       - POSTGRES_USER=${ADMIN_POSTGRES_USER}
       - POSTGRES_PASSWORD=${ADMIN_POSTGRES_PASSWORD}
+      - AUTH_API_LOGIN_URL=http://auth-app:8000/auth/login
     depends_on:
       postgres-admin:
         condition: service_healthy
