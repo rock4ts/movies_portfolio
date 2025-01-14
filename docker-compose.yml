@@ -33,7 +33,7 @@ services:
     volumes:
       - static_value:/opt/app/static/
     env_file:
-      - ./.env
+      - .env
     environment:
       - POSTGRES_DB=${ADMIN_POSTGRES_DB}
       - POSTGRES_USER=${ADMIN_POSTGRES_USER}
@@ -61,7 +61,7 @@ services:
   auth-app:
     build: auth_api/
     environment:
-      - OTEL_SERVICE_NAME=auth-app
+      - OTEL_SERVICE_NAME=auth-app # имя в трейсах
     env_file:
       - .env
     command: >
