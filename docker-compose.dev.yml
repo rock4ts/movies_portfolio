@@ -1,0 +1,59 @@
+services:
+
+  postgres-admin:
+    image: postgres:16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=${ADMIN_POSTGRES_DB}
+      - POSTGRES_USER=${ADMIN_POSTGRES_USER}
+      - POSTGRES_PASSWORD=${ADMIN_POSTGRES_PASSWORD}
+    volumes:
+      - pg_data_admin:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${ADMIN_POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  admin-panel:
+    build: ./admin_panel
+    volumes:
+      - static_value:/admin_panel/app/static/
+    env_file:
+      - admin_panel/.env
+    environment:
+      - POSTGRES_DB=${ADMIN_POSTGRES_DB}
+      - POSTGRES_USER=${ADMIN_POSTGRES_USER}
+      - POSTGRES_PASSWORD=${ADMIN_POSTGRES_PASSWORD}
+    depends_on:
+      postgres-admin:
+        condition: service_healthy
+
+  admin-swagger:
+    image: swaggerapi/swagger-ui
+    volumes:
+      - ./admin_panel/openapi.yaml:/swagger.yaml
+    environment:
+      - SWAGGER_JSON=/swagger.yaml
+    depends_on:
+      - admin-panel
+    ports:
+      - "8080:8080"
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - static_value:/var/www/static/
+    depends_on:
+      postgres-admin:
+        condition: service_healthy
+
+volumes:
+  pg_data_admin:
+  static_value:
