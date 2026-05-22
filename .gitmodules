@@ -7,3 +7,6 @@
 [submodule "content_api"]
 	path = content_api
 	url = git@github.com:rock4ts/Async_API_sprint_2.git
+[submodule "movies_etl"]
+	path = movies_etl
+	url = git@github.com:rock4ts/movies_etl.git
