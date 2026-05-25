@@ -18,3 +18,11 @@ admin-psql:
 # Load fw_data.sql into Postgres
 admin-load-fw-data:
     set -a && source admin_panel/.env.local && set +a; PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f admin_panel/fw_data.sql
+
+# Dump current Postgres DB to admin_panel/database_dump.sql
+admin-dump-db:
+    set -a && source admin_panel/.env.local && set +a; PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges > admin_panel/database_dump.sql
+
+# Run Movies ETL locally
+etl-local:
+    set -a && source movies_etl/.env.local && set +a; cd movies_etl && uv run python -m app.main

@@ -54,6 +54,52 @@ services:
       postgres-admin:
         condition: service_healthy
 
+  elastic-db:
+    image: elasticsearch:8.6.2
+    environment:
+      - "ES_JAVA_OPTS=-Xms512m -Xmx1024m"
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "xpack.security.enabled=false"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: curl -s http://localhost:9200 >/dev/null || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  elastic-init:
+    image: curlimages/curl:latest
+    depends_on:
+      elastic-db:
+        condition: service_healthy
+    entrypoint: "curl -XPUT http://elastic-db:9200/movies \
+                -H 'Content-Type: application/json' \
+                -d @/data/movies_index.json"
+    volumes:
+      - ./movies_index.json:/data/movies_index.json
+
+  movies-etl:
+    build: movies_etl
+    volumes:
+      - etl_state:/opt/app/data
+    env_file:
+      - movies_etl/.env
+    environment:
+      - STATE_FILE_PATH=/etl_state/state.json
+    depends_on:
+      postgres-admin:
+        condition: service_healthy
+      elastic-db:
+        condition: service_healthy
+    restart: always
+
 volumes:
   pg_data_admin:
   static_value:
+  es_data:
+  etl_state:
