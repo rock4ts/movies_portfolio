@@ -57,31 +57,31 @@ services:
   elastic-db:
     image: elasticsearch:8.6.2
     environment:
-      - "ES_JAVA_OPTS=-Xms512m -Xmx1024m"
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
       - discovery.type=single-node
       - bootstrap.memory_lock=true
-      - "xpack.security.enabled=false"
+      - xpack.security.enabled=false
     ports:
       - "9200:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     healthcheck:
-      test: curl -s http://localhost:9200 >/dev/null || exit 1
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health?wait_for_status=yellow || exit 1"]
       interval: 10s
       timeout: 10s
       retries: 5
-    restart: always
+    restart: unless-stopped
 
   elastic-init:
     image: curlimages/curl:latest
     depends_on:
       elastic-db:
         condition: service_healthy
-    entrypoint: "curl -XPUT http://elastic-db:9200/movies \
-                -H 'Content-Type: application/json' \
-                -d @/data/movies_index.json"
+    entrypoint: ["/bin/sh", "/scripts/create_elastic_indexes.sh"]
     volumes:
-      - ./movies_index.json:/data/movies_index.json
+      - ./elasticsearch/indexes:/data/indexes:ro
+      - ./scripts/create_elastic_indexes.sh:/scripts/create_elastic_indexes.sh:ro
+    restart: on-failure
 
   movies-etl:
     build: movies_etl
@@ -94,9 +94,9 @@ services:
     depends_on:
       postgres-admin:
         condition: service_healthy
-      elastic-db:
-        condition: service_healthy
-    restart: always
+      elastic-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
 
 volumes:
   pg_data_admin:
