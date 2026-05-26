@@ -4,9 +4,9 @@
 [submodule "admin_panel"]
 	path = admin_panel
 	url = git@github.com:rock4ts/new_admin_panel_sprint_2.git
-[submodule "content_api"]
-	path = content_api
-	url = git@github.com:rock4ts/Async_API_sprint_2.git
+[submodule "movies_api"]
+	path = movies_api
+	url = git@github.com:rock4ts/movies_api.git
 [submodule "movies_etl"]
 	path = movies_etl
 	url = git@github.com:rock4ts/movies_etl.git
