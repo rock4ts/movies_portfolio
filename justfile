@@ -26,3 +26,7 @@ admin-dump-db:
 # Run Movies ETL locally
 etl-local:
     set -a && source movies_etl/.env.local && set +a; cd movies_etl && uv run python -m app.main
+
+# Run Elasticsearch index initialization container
+elastic-init:
+    docker compose -f docker-compose.dev.yml up elastic-init
