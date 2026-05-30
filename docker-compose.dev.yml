@@ -90,7 +90,7 @@ services:
     restart: on-failure
 
   movies-etl:
-    build: movies_etl
+    build: ./movies_etl
     volumes:
       - etl_state:/opt/app/data
     env_file:
@@ -107,20 +107,14 @@ services:
 
   movies-api:
     build:
-      context: .
+      context: ./movies_api
       dockerfile: Dockerfile
     env_file:
-      - .env
-    environment:
-      - ELASTIC_HOST=elastic-db
-      - ELASTIC_PORT=9200
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - movies_api/.env
     depends_on:
       elastic-init:
         condition: service_completed_successfully
     restart: unless-stopped
-    command: gunicorn w 4 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:8000
 
 volumes:
   pg_data_admin:
