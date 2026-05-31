@@ -1,6 +1,6 @@
 [submodule "auth_api"]
 	path = auth_api
-	url = git@github.com:rock4ts/Auth_sprint_1.git
+	url = git@github.com:rock4ts/auth_api.git
 [submodule "admin_panel"]
 	path = admin_panel
 	url = git@github.com:rock4ts/new_admin_panel_sprint_2.git
