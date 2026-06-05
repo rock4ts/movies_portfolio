@@ -42,13 +42,19 @@
     }
   },
   "mappings": {
-    "dynamic": "strict",
+    "dynamic": "true",
     "properties": {
       "id": {
         "type": "keyword"
       },
+      "access_label": {
+        "type": "keyword"
+      },
       "imdb_rating": {
         "type": "float"
+      },
+      "creation_date": {
+        "type": "date"
       },
       "genres": {
         "type": "nested",
