@@ -15,9 +15,9 @@ admin-local:
 admin-psql:
     set -a && source admin_panel/.env.local && set +a; PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB"
 
-# Load fw_data.sql into Postgres
+# Load database_dump.sql into Postgres
 admin-load-fw-data:
-    set -a && source admin_panel/.env.local && set +a; PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f admin_panel/fw_data.sql
+    set -a && source admin_panel/.env.local && set +a; PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f admin_panel/database_dump.sql
 
 # Dump current Postgres DB to admin_panel/database_dump.sql
 admin-dump-db:
@@ -30,3 +30,6 @@ etl-local:
 # Run Elasticsearch index initialization container
 elastic-init:
     docker compose -f docker-compose.dev.yml up elastic-init
+
+movies-api-local:
+    set -a && source movies_api/.env.local && set +a; cd movies_api && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
