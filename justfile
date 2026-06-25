@@ -11,6 +11,12 @@ dev-down:
 admin-local:
     set -a && source admin_panel/.env.local && set +a; cd admin_panel && uv run python manage.py runserver
 
+admin-local-makemigrations:
+    set -a && source admin_panel/.env.local && set +a; cd admin_panel && uv run python manage.py makemigrations
+
+admin-local-migrate:
+    set -a && source admin_panel/.env.local && set +a; cd admin_panel && uv run python manage.py migrate
+
 # Open psql using variables from .env.local
 admin-psql:
     set -a && source admin_panel/.env.local && set +a; PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$POSTGRES_DB"
@@ -33,3 +39,6 @@ elastic-init:
 
 movies-api-local:
     set -a && source movies_api/.env.local && set +a; cd movies_api && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+auth-api-local:
+    set -a && source auth_api/.env.local && set +a; cd auth_api && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
