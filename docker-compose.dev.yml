@@ -15,22 +15,53 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: always
+    restart: unless-stopped
 
-  # postgres-auth:
-  #   image: postgres:16
-  #   environment:
-  #     - POSTGRES_DB=auth
-  #     - POSTGRES_USER=postgres
-  #     - POSTGRES_PASSWORD=password
-  #   volumes:
-  #     - pg_data_auth:/var/lib/postgresql/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U postgres"]
-  #     interval: 5s
-  #     timeout: 5s
-  #     retries: 5
-  #   restart: always
+  postgres-auth:
+    build: docker/pg-auth
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_DB=auth
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - ./docker/pg-auth/init-extensions.sql:/docker-entrypoint-initdb.d/init-extensions.sql
+      - pg_data_auth:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_cron
+      -c cron.database_name=auth
+
+  jaeger-init:
+    image: busybox
+    command: ["sh", "-c", "mkdir -p /badger/key /badger/data && chmod -R 777 /badger"]
+    volumes:
+      - jaeger_data:/badger
+
+  jaeger-tracer:
+    image: jaegertracing/all-in-one:latest
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=badger
+      - BADGER_EPHEMERAL=false
+      - BADGER_DIRECTORY_VALUE=/badger/data
+      - BADGER_DIRECTORY_KEY=/badger/key
+    depends_on:
+      jaeger-init:
+        condition: service_completed_successfully
+    volumes:
+      - jaeger_data:/badger
+      - jaeger_tmp:/tmp
+    ports:
+      - 16686:16686
+      - 4317:4317
 
   redis:
     image: redis:alpine
@@ -47,8 +78,9 @@ services:
     build: ./admin_panel
     volumes:
       - static_value:/admin_panel/app/static/
+      - ./auth-certs/jwt-public.pem:/run/secrets/jwt/jwt-public.pem:ro
     env_file:
-      - admin_panel/.env
+      - env-files/.env.admin
     depends_on:
       postgres-admin:
         condition: service_healthy
@@ -98,9 +130,7 @@ services:
     volumes:
       - etl_state:/opt/app/data
     env_file:
-      - movies_etl/.env
-    environment:
-      - STATE_FILE_PATH=/etl_state/state.json
+      - env-files/.env.etl
     depends_on:
       postgres-admin:
         condition: service_healthy
@@ -110,36 +140,31 @@ services:
 
 
   movies-api:
-    build:
-      context: ./movies_api
-      dockerfile: Dockerfile
+    build: movies_api/
     env_file:
-      - movies_api/.env
+      - env-files/.env.movies
     depends_on:
       elastic-init:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
     volumes:
-      - ./certs/jwt-public.pem:/run/secrets/jwt/jwt-public.pem:ro
+      - ./auth-certs/jwt-public.pem:/run/secrets/jwt/jwt-public.pem:ro
     restart: unless-stopped
 
-  # auth-app:
-  #   build: auth_api/
-  #   env_file:
-  #     - .env
-  #   depends_on:
-  #     postgres-auth:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   volumes:
-  #     - ./certs:/run/secrets/jwt:ro
-  #   command: >
-  #     sh -c "
-  #     alembic upgrade head &&
-  #     gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:8000
-  #     "
+  auth-api:
+    build: auth_api/
+    env_file:
+      - env-files/.env.auth
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      jaeger-tracer:
+        condition: service_started
+    volumes:
+      - ./auth-certs:/run/secrets/jwt:ro
 
   nginx:
     image: nginx:latest
@@ -155,7 +180,10 @@ services:
 
 volumes:
   pg_data_admin:
-  # pg_data_auth:
+  pg_data_auth:
+  pg_data_auth_partman:
   static_value:
   es_data:
   etl_state:
+  jaeger_data:
+  jaeger_tmp:
