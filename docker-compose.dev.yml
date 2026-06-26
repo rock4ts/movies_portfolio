@@ -48,6 +48,9 @@ services:
 
   jaeger-tracer:
     image: jaegertracing/all-in-one:latest
+    ports:
+      - 16686:16686
+      - 4317:4317
     environment:
       - COLLECTOR_OTLP_ENABLED=true
       - SPAN_STORAGE_TYPE=badger
@@ -60,9 +63,6 @@ services:
     volumes:
       - jaeger_data:/badger
       - jaeger_tmp:/tmp
-    ports:
-      - 16686:16686
-      - 4317:4317
 
   redis:
     image: redis:alpine
@@ -77,6 +77,8 @@ services:
 
   admin-panel:
     build: ./admin_panel
+    ports:
+      - "8000:8000"
     volumes:
       - static_value:/admin_panel/app/static/
       - ./auth-certs/jwt-public.pem:/run/secrets/jwt/jwt-public.pem:ro
@@ -88,14 +90,14 @@ services:
 
   admin-swagger:
     image: swaggerapi/swagger-ui
+    ports:
+      - "8080:8080"
     volumes:
       - ./admin_panel/openapi.yaml:/swagger.yaml
     environment:
       - SWAGGER_JSON=/swagger.yaml
     depends_on:
       - admin-panel
-    ports:
-      - "8080:8080"
 
   elastic-db:
     image: elasticsearch:8.6.2
@@ -142,6 +144,8 @@ services:
 
   movies-api:
     build: movies_api/
+    ports:
+      - "8001:8000"
     env_file:
       - env-files/.env.movies
     depends_on:
@@ -155,6 +159,8 @@ services:
 
   auth-api:
     build: auth_api/
+    ports:
+      - "8002:8000"
     env_file:
       - env-files/.env.auth
     depends_on:
@@ -166,18 +172,6 @@ services:
         condition: service_started
     volumes:
       - ./auth-certs:/run/secrets/jwt:ro
-
-  nginx:
-    image: nginx:latest
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - static_value:/var/www/static/
-    depends_on:
-      postgres-admin:
-        condition: service_healthy
 
 volumes:
   pg_data_admin:
