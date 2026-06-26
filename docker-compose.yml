@@ -50,6 +50,7 @@ services:
       - BADGER_EPHEMERAL=false
       - BADGER_DIRECTORY_VALUE=/badger/data
       - BADGER_DIRECTORY_KEY=/badger/key
+      - QUERY_BASE_PATH=/tracer
     depends_on:
       jaeger-init:
         condition: service_completed_successfully
@@ -164,6 +165,8 @@ services:
     depends_on:
       postgres-admin:
         condition: service_healthy
+      jaeger-tracer:
+        condition: service_started
 
 volumes:
   pg_data_admin:
