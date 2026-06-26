@@ -1,110 +1,157 @@
 services:
 
-  redis:
-    image: redis:alpine
-
-  tracer:
-    image: jaegertracing/all-in-one:latest
-    environment:
-      - COLLECTOR_OTLP_ENABLED=true
-    ports:
-      - 16686:16686
-      - 4317:4317
-
   postgres-admin:
     image: postgres:16
     environment:
-      - POSTGRES_DB=${ADMIN_POSTGRES_DB}
-      - POSTGRES_USER=${ADMIN_POSTGRES_USER}
-      - POSTGRES_PASSWORD=${ADMIN_POSTGRES_PASSWORD}
+      - POSTGRES_DB=theatre
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
     volumes:
-      - ./admin_panel/db_init.sql:/docker-entrypoint-initdb.d/init.sql
-      - ./admin_panel/fw_data.ddl:${PWD}
       - pg_data_admin:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${ADMIN_POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
-    restart: always
+    restart: unless-stopped
+
+  postgres-auth:
+    build: docker/pg-auth
+    environment:
+      - POSTGRES_DB=auth
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - ./docker/pg-auth/init-extensions.sql:/docker-entrypoint-initdb.d/init-extensions.sql
+      - pg_data_auth:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_cron
+      -c cron.database_name=auth
+
+  jaeger-init:
+    image: busybox
+    entrypoint: ["/bin/sh", "/scripts/init_jaeger_badger.sh"]
+    volumes:
+      - jaeger_data:/badger
+      - ./scripts/init_jaeger_badger.sh:/scripts/init_jaeger_badger.sh:ro
+
+  jaeger-tracer:
+    image: jaegertracing/all-in-one:latest
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - SPAN_STORAGE_TYPE=badger
+      - BADGER_EPHEMERAL=false
+      - BADGER_DIRECTORY_VALUE=/badger/data
+      - BADGER_DIRECTORY_KEY=/badger/key
+    depends_on:
+      jaeger-init:
+        condition: service_completed_successfully
+    volumes:
+      - jaeger_data:/badger
+      - jaeger_tmp:/tmp
+
+  redis:
+    image: redis:alpine
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   admin-panel:
-    build: admin_panel/docker_compose/simple_project/app
+    build: ./admin_panel
     volumes:
-      - static_value:/opt/app/static/
+      - static_value:/admin_panel/app/static/
+      - ./auth-certs/jwt-public.pem:/run/secrets/jwt/jwt-public.pem:ro
     env_file:
-      - .env
-    environment:
-      - POSTGRES_DB=${ADMIN_POSTGRES_DB}
-      - POSTGRES_USER=${ADMIN_POSTGRES_USER}
-      - POSTGRES_PASSWORD=${ADMIN_POSTGRES_PASSWORD}
-      - AUTH_API_LOGIN_URL=http://auth-app:8000/auth/login
+      - env-files/.env.admin
     depends_on:
       postgres-admin:
         condition: service_healthy
-    restart: always
 
-  postgres-auth:
-    image: postgres:16
-    environment:
-      - POSTGRES_DB=${AUTH_POSTGRES_DB}
-      - POSTGRES_USER=${AUTH_POSTGRES_USER}
-      - POSTGRES_PASSWORD=${AUTH_POSTGRES_PASSWORD}
+  admin-swagger:
+    image: swaggerapi/swagger-ui
     volumes:
-      - pg_data_auth:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${AUTH_POSTGRES_USER}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  auth-app:
-    build: auth_api/
+      - ./admin_panel/openapi.yaml:/swagger.yaml
     environment:
-      - OTEL_SERVICE_NAME=auth-app # имя в трейсах
-    env_file:
-      - .env
-    command: >
-      sh -c "
-      /scripts/wait-for-it.sh postgres-auth:5432 -s -t 60 &&
-      /scripts/wait-for-it.sh redis:6379 -s -t 60 &&
-      alembic upgrade head &&
-      gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:8000
-      "
+      - SWAGGER_JSON=/swagger.yaml
+    depends_on:
+      - admin-panel
 
   elastic-db:
-    image: "elasticsearch:8.6.2"
-    volumes:
-      - esdata:/usr/share/elasticsearch/data
-      - ./content_api/elastic/es_dump:/usr/share/elasticsearch/snapshots
+    image: elasticsearch:8.6.2
     environment:
-      ES_JAVA_OPTS: "-Xms1024m -Xmx1024m"
-      discovery.type: "single-node"
-      path.repo: "/usr/share/elasticsearch/snapshots"
-      xpack.security.enabled: "false"
-      cluster.routing.allocation.disk.watermark.low: "90%"
-    healthcheck:
-      test: curl -s http://elastic-db:9200  >/dev/null || exit 1
-      interval: 20s
-      timeout: 20s
-      retries: 5
-    restart: unless-stopped 
-
-  load-elastic-index:
-    image: "elasticsearch:8.6.2"
-    restart: "no"
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - xpack.security.enabled=false
     volumes:
-      - ./content_api/post-process:/scripts
-    command: ["/scripts/wait-for-it.sh", "elastic-db:9200", "-s", "-t", "60", "--", "/scripts/load_elastic_index.sh"]
-
-  content-app:
-    build: content_api/
-    env_file:
-      - .env
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health?wait_for_status=yellow || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
     restart: unless-stopped
-    command: >
-      /scripts/wait-for-it.sh elastic-db:9200 -s -t 60 --
-      gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:8000
+
+  elastic-init:
+    image: curlimages/curl:latest
+    depends_on:
+      elastic-db:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/scripts/create_elastic_indexes.sh"]
+    volumes:
+      - ./elasticsearch/indexes:/data/indexes:ro
+      - ./scripts/create_elastic_indexes.sh:/scripts/create_elastic_indexes.sh:ro
+    restart: on-failure
+
+  movies-etl:
+    build: ./movies_etl
+    volumes:
+      - etl_state:/opt/app/data
+    env_file:
+      - env-files/.env.etl
+    depends_on:
+      postgres-admin:
+        condition: service_healthy
+      elastic-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  movies-api:
+    build: movies_api/
+    env_file:
+      - env-files/.env.movies
+    depends_on:
+      elastic-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./auth-certs/jwt-public.pem:/run/secrets/jwt/jwt-public.pem:ro
+    restart: unless-stopped
+
+  auth-api:
+    build: auth_api/
+    env_file:
+      - env-files/.env.auth
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      jaeger-tracer:
+        condition: service_started
+    volumes:
+      - ./auth-certs:/run/secrets/jwt:ro
 
   nginx:
     image: nginx:latest
@@ -115,13 +162,15 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - static_value:/var/www/static/
     depends_on:
-      - auth-app
-      - content-app
-      - admin-panel
-    restart: unless-stopped
+      postgres-admin:
+        condition: service_healthy
 
 volumes:
-  pg_data_auth:
   pg_data_admin:
-  esdata:
+  pg_data_auth:
+  pg_data_auth_partman: 
   static_value:
+  es_data:
+  etl_state:
+  jaeger_data:
+  jaeger_tmp:
