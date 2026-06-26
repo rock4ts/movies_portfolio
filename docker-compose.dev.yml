@@ -41,9 +41,10 @@ services:
 
   jaeger-init:
     image: busybox
-    command: ["sh", "-c", "mkdir -p /badger/key /badger/data && chmod -R 777 /badger"]
+    entrypoint: ["/bin/sh", "/scripts/init_jaeger_badger.sh"]
     volumes:
       - jaeger_data:/badger
+      - ./scripts/init_jaeger_badger.sh:/scripts/init_jaeger_badger.sh:ro
 
   jaeger-tracer:
     image: jaegertracing/all-in-one:latest
