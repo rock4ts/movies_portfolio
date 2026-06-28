@@ -101,6 +101,7 @@ docker compose down          # stop and remove containers
 | http://127.0.0.1/movies/api/ | Movies API |
 | http://127.0.0.1/movies/api/docs | Movies OpenAPI (Swagger UI) |
 | http://127.0.0.1/tracer/ | Jaeger UI |
+| http://127.0.0.1/architecture/pre-ugc/ | Architecture docs (current stage) |
 
 ### Development — `docker-compose.dev.yml`
 
@@ -150,6 +151,55 @@ The `justfile` provides recipes to run individual services on the host against D
 | `just admin-psql` | Open psql to admin database |
 
 Copy `.env.example` to `.env.local` in each service directory before using these recipes.
+
+## Architecture documentation
+
+The repository keeps a **versioned record of how the system evolves** — not just the current state, but snapshots of the architecture at each major development stage.
+
+Each stage is a self-contained folder with PlantUML diagrams, a short README, and a static index page. When a new service or capability is added (for example, a UGC module), a new stage folder is created to document the updated architecture while earlier stages remain available for comparison.
+
+```
+architecture-raw/              ← manually maintained sources (committed)
+├── pre-ugc/
+│   ├── components.puml
+│   ├── README.md
+│   └── index.html
+└── ugc/                       ← future stage
+    └── …
+
+architecture-rendered/         ← generated output (gitignored, not committed)
+├── pre-ugc/
+│   ├── components.svg
+│   ├── README.md
+│   └── index.html
+└── …
+```
+
+**What goes where:**
+
+| Directory | Purpose |
+|-----------|---------|
+| `architecture-raw/` | Source files edited by hand — only `.puml` diagrams, `README.md`, and `index.html` |
+| `architecture-rendered/` | Auto-generated SVGs and copied static files — listed in `.gitignore`, not committed |
+
+**How to generate rendered docs locally:**
+
+```bash
+docker compose -f docker-compose.dev.yml run --rm architecture-renderer
+```
+
+This runs the `architecture-renderer` container once, reads from `architecture-raw/`, and writes the result to `architecture-rendered/`. Re-run after editing any source file in `architecture-raw/`.
+
+**How rendering works:**
+
+The `architecture-renderer` container runs `scripts/render_project_schemas.sh`. It recursively scans `architecture-raw/` for `.puml` files, renders each to SVG, and copies non-diagram files (`README.md`, `index.html`) into the output — preserving the directory structure.
+
+| Mode | Input | Output | Access |
+|------|-------|--------|--------|
+| Production | `./architecture-raw` | `schema_output` volume | http://127.0.0.1/architecture/pre-ugc/ |
+| Development | `./architecture-raw` | `./architecture-rendered` | Open files on disk after running the command above |
+
+The current stage is **pre-ugc** — the integrated platform before user-generated content is added. See [architecture-raw/pre-ugc/README.md](architecture-raw/pre-ugc/README.md) for the full description.
 
 ## Implemented features
 

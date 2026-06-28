@@ -1,0 +1,49 @@
+@startuml
+!include <C4/C4_Container>
+
+title Pre-UGC System Architecture (Current)
+
+Person(user, "Employee / End User", "Uses web interfaces and APIs")
+
+System_Boundary(platform, "Online Movie Theater Platform") {
+    Container(nginx, "Nginx", "Reverse Proxy", "Single entry point, routing, and rate limiting")
+    Container(adminPanel, "admin_panel", "Django", "Content management and read API")
+    Container(adminSwagger, "admin-swagger", "Swagger UI", "Admin API documentation")
+    Container(authApi, "auth_api", "FastAPI", "Users, roles, JWT, OAuth")
+    Container(moviesApi, "movies_api", "FastAPI", "Read API with access control and cache")
+    Container(moviesEtl, "movies_etl", "Python worker", "Synchronizes catalog data to search indexes")
+
+    ContainerDb(postgresAdmin, "postgres-admin", "PostgreSQL", "Content database")
+    ContainerDb(postgresAuth, "postgres-auth", "PostgreSQL", "Authentication and authorization database")
+    ContainerDb(redis, "Redis", "Redis", "Rate limits, token blocklist, response cache")
+    ContainerDb(elastic, "elastic-db", "Elasticsearch", "Search indexes: movies, genres, persons")
+    ContainerDb(jaeger, "jaeger-tracer", "Jaeger", "Tracing storage and UI")
+}
+
+System_Ext(yandex, "Yandex ID", "External OAuth provider")
+
+Rel(user, nginx, "Uses web/API endpoints", "HTTP")
+Rel(nginx, adminPanel, "/admin, /admin/api", "HTTP")
+Rel(nginx, adminSwagger, "/admin/docs", "HTTP")
+Rel(nginx, authApi, "/auth/api", "HTTP")
+Rel(nginx, moviesApi, "/movies/api", "HTTP")
+Rel(nginx, jaeger, "/tracer", "HTTP")
+
+Rel(adminPanel, postgresAdmin, "Reads and writes content", "PostgreSQL")
+Rel(adminPanel, authApi, "Delegates staff login", "HTTP")
+Rel(adminPanel, authApi, "Verifies JWT signature with shared public key", "RS256 (offline verification)")
+
+Rel(authApi, postgresAuth, "Stores users, roles, sessions, login history", "PostgreSQL")
+Rel(authApi, redis, "Rate limits and refresh token blocklist", "Redis protocol")
+Rel(authApi, jaeger, "Exports traces", "OTLP gRPC")
+Rel(authApi, yandex, "OAuth authorization and token exchange", "HTTPS")
+
+Rel(moviesApi, elastic, "Reads catalog indexes", "HTTP")
+Rel(moviesApi, redis, "Caches API responses", "Redis protocol")
+Rel(moviesApi, authApi, "Verifies JWT signature with shared public key", "RS256 (offline verification)")
+
+Rel(moviesEtl, postgresAdmin, "Extracts changed content", "PostgreSQL")
+Rel(moviesEtl, elastic, "Loads/updates search documents", "HTTP")
+
+SHOW_LEGEND()
+@enduml

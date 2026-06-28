@@ -87,6 +87,14 @@ services:
     depends_on:
       - admin-panel
 
+  architecture-renderer:
+    image: plantuml/plantuml:latest
+    entrypoint: ["/bin/sh", "/scripts/render_project_schemas.sh"]
+    volumes:
+      - ./architecture-raw:/input:ro
+      - schema_output:/output
+      - ./scripts/render_project_schemas.sh:/scripts/render_project_schemas.sh:ro
+
   elastic-db:
     image: elasticsearch:8.6.2
     environment:
@@ -162,11 +170,15 @@ services:
       - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - static_value:/var/www/static/
+      - schema_output:/var/www/schema-render:ro
+
     depends_on:
       postgres-admin:
         condition: service_healthy
       jaeger-tracer:
         condition: service_started
+      architecture-renderer:
+        condition: service_completed_successfully
 
 volumes:
   pg_data_admin:
@@ -177,3 +189,4 @@ volumes:
   etl_state:
   jaeger_data:
   jaeger_tmp:
+  schema_output:
