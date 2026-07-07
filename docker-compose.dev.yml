@@ -184,7 +184,6 @@ services:
 volumes:
   pg_data_admin:
   pg_data_auth:
-  pg_data_auth_partman:
   static_value:
   es_data:
   etl_state:
