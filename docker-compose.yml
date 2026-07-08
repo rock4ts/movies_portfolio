@@ -74,6 +74,12 @@ services:
       - ./auth-certs/jwt-public.pem:/run/secrets/jwt/jwt-public.pem:ro
     env_file:
       - env-files/.env.admin
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       postgres-admin:
         condition: service_healthy
@@ -173,8 +179,10 @@ services:
       - schema_output:/var/www/schema-render:ro
 
     depends_on:
-      postgres-admin:
+      admin-panel:
         condition: service_healthy
+      admin-swagger:
+        condition: service_started
       jaeger-tracer:
         condition: service_started
       architecture-renderer:
