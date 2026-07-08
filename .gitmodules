@@ -10,6 +10,6 @@
 [submodule "movies_etl"]
 	path = movies_etl
 	url = git@github.com:rock4ts/movies_etl.git
-[submodule "ugc_etl_profiler"]
-	path = ugc_etl_profiler
-	url = git@github.com:rock4ts/movies_ugc_etl_profiler.git
+[submodule "clickhouse_profiler"]
+	path = clickhouse_profiler
+	url = git@github.com:rock4ts/clickhouse_profiler.git
