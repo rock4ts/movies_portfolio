@@ -177,7 +177,6 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - static_value:/var/www/static/
       - schema_output:/var/www/schema-render:ro
-      - ./ugc_etl_profiler/results_example:/var/www/ugc-profiler-results:ro
       - ./ugc_etl_profiler/results_example.tar.gz:/var/www/ugc-profiler-results.tar.gz:ro
 
     depends_on:
