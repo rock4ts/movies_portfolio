@@ -34,8 +34,9 @@ flowchart LR
 | **postgres-admin** / **postgres-auth** | Separate databases for content and auth |
 | **redis** | Rate limiting (auth) and response cache (movies) |
 | **elastic-db** | Search indexes: `movies`, `genres`, `persons` |
+| **ugc_etl_profiler** | ClickHouse benchmarking toolkit for UGC ETL workloads — runs standalone; example results are served via nginx in production mode |
 
-Each application lives in a Git submodule. See [`.gitmodules`](.gitmodules) for source repositories.
+Each application lives in a Git submodule. See [`.gitmodules`](.gitmodules) for source repositories. The profiler is part of the integration repo under [`ugc_etl_profiler/`](ugc_etl_profiler/).
 
 ## Prerequisites
 
@@ -102,6 +103,7 @@ docker compose down          # stop and remove containers
 | http://127.0.0.1/movies/api/docs | Movies OpenAPI (Swagger UI) |
 | http://127.0.0.1/tracer/ | Jaeger UI |
 | http://127.0.0.1/architecture/pre-ugc/ | Architecture docs (current stage) |
+| http://127.0.0.1/ugc/etl/profiler/results | UGC ETL profiler — download example results archive (`results_example.tar.gz`) |
 
 ### Development — `docker-compose.dev.yml`
 
@@ -201,6 +203,27 @@ The `architecture-renderer` container runs `scripts/render_project_schemas.sh`. 
 
 The current stage is **pre-ugc** — the integrated platform before user-generated content is added. See [architecture-raw/pre-ugc/README.md](architecture-raw/pre-ugc/README.md) for the full description.
 
+## UGC ETL profiler
+
+[`ugc_etl_profiler/`](ugc_etl_profiler/) is a standalone ClickHouse benchmarking toolkit used to profile workloads of UGC ETL pipeline. It ships its own Compose stack (ClickHouse, synthetic dataset loader, and a scenario-based profiler CLI) and is **not** started by the main `docker compose up` command.
+
+Run benchmarks locally:
+
+```bash
+cd ugc_etl_profiler
+docker compose up --build
+```
+
+Each scenario writes timestamped output under `results/<scenario>/<timestamp>/`. The repository includes a pre-built sample archive at `ugc_etl_profiler/results_example.tar.gz`.
+
+In **production mode**, nginx exposes a download endpoint for that archive:
+
+| URL | Response |
+|-----|----------|
+| http://127.0.0.1/ugc/etl/profiler/results | `application/gzip` attachment named `results_example.tar.gz` |
+
+The endpoint is static file delivery only — it does not run the profiler. See ugc_etl_profiler's README.md for scenarios, configuration, and how to generate fresh results.
+
 ## Implemented features
 
 - **Unified auth** — admin panel login delegates to `auth_api`; superusers registered via auth are provisioned locally on first login. A break-glass local account remains available if auth is down.
@@ -208,16 +231,10 @@ The current stage is **pre-ugc** — the integrated platform before user-generat
 - **Rate limiting** — nginx token bucket on movies API; Redis-based per-IP limits on sensitive auth endpoints.
 - **Yandex ID OAuth** — `/auth/api/yandexid/login` and `/auth/api/yandexid/token`.
 
-## Service documentation
-
-- [auth_api/README.md](auth_api/README.md) — authentication, roles, OAuth, migrations
-- [admin_panel/README.md](admin_panel/README.md) — content model, admin login, API
-- [movies_api/README.md](movies_api/README.md) — catalog endpoints, access labels
-- [movies_etl/README.md](movies_etl/README.md) — PostgreSQL → Elasticsearch pipeline
-
 ## Source repositories
 
 - [Integration repo](https://github.com/rock4ts/Auth_sprint_2)
 - [Movies API](https://github.com/rock4ts/Async_API_sprint_2)
 - [Admin panel](https://github.com/rock4ts/new_admin_panel_sprint_2)
 - [Auth API](https://github.com/rock4ts/Auth_sprint_1)
+- [Clickhouse profiler](https://github.com/rock4ts/movies_ugc_etl_profiler.git)
