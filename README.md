@@ -36,7 +36,7 @@ flowchart LR
 | **elastic-db** | Search indexes: `movies`, `genres`, `persons` |
 | **clickhouse_profiler** | ClickHouse benchmarking toolkit — runs standalone; example results are served via nginx in production mode |
 
-Each application lives in a Git submodule. See [`.gitmodules`](.gitmodules) for source repositories. The profiler is part of the integration repo under [`clickhouse_profiler/`](clickhouse_profiler/).
+Each application lives in a Git submodule. See [`.gitmodules`](.gitmodules) for source repositories.
 
 ## Prerequisites
 
