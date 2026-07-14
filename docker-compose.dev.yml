@@ -180,6 +180,19 @@ services:
     volumes:
       - ./auth-certs:/run/secrets/jwt:ro
 
+  ugc-api:
+    build: ugc_api/
+    ports:
+      - "8003:8000"
+    env_file:
+      - env-files/.env.ugc-api
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./auth-certs/jwt-public.pem:/run/secrets/jwt/jwt-public.pem:ro
+    restart: unless-stopped
+
   kafka:
     image: apache/kafka:4.1.0
     ports:
