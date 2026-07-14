@@ -49,8 +49,8 @@ Each application lives in a Git submodule. See [`.gitmodules`](.gitmodules) for 
 1. Clone with submodules:
 
    ```bash
-   git clone --recurse-submodules git@github.com:rock4ts/yap2_diploma.git
-   cd yap2_diploma
+   git clone --recurse-submodules git@github.com:rock4ts/movies_portfolio.git
+   cd movies_portfolio
    ```
 
    If already cloned without submodules:
@@ -233,7 +233,7 @@ The endpoint is static file delivery only — it does not run the profiler. See 
 
 ## Source repositories
 
-- [Integration repo](https://github.com/rock4ts/Auth_sprint_2)
+- [Integration repo](https://github.com/rock4ts/movies_portfolio)
 - [Movies API](https://github.com/rock4ts/Async_API_sprint_2)
 - [Admin panel](https://github.com/rock4ts/new_admin_panel_sprint_2)
 - [Auth API](https://github.com/rock4ts/Auth_sprint_1)
