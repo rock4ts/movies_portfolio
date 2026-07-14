@@ -13,3 +13,6 @@
 [submodule "clickhouse_profiler"]
 	path = clickhouse_profiler
 	url = git@github.com:rock4ts/clickhouse_profiler.git
+[submodule "ugc_api"]
+	path = ugc_api
+	url = git@github.com:rock4ts/movies_ugc_api.git
