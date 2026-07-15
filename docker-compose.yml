@@ -240,6 +240,10 @@ services:
         condition: service_started
       jaeger-tracer:
         condition: service_started
+      movies-api:
+        condition: service_started
+      auth-api:
+        condition: service_started
       architecture-renderer:
         condition: service_completed_successfully
 
