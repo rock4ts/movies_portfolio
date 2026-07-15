@@ -1,6 +1,6 @@
 # Online Movie Theater — Integration Project
 
-Diploma project for [Yandex Practicum](https://practicum.yandex.ru/) (sprint 2). The repository wires together four services into a single platform: content management, catalog API, authentication, and ETL. Nginx acts as the public entry point in production mode; Jaeger collects distributed traces from the auth service.
+Diploma project for [Yandex Practicum](https://practicum.yandex.ru/) (sprint 2). The repository wires together five application services into a single platform: content management, catalog API, authentication, ETL, and UGC event ingestion. Nginx acts as the public entry point in production mode; Jaeger collects distributed traces from the auth service.
 
 **Author:** [Artyom Suhov](https://github.com/rock4ts)
 
@@ -12,6 +12,7 @@ flowchart LR
     Nginx --> AdminPanel
     Nginx --> MoviesAPI
     Nginx --> AuthAPI
+    Nginx --> UGCAPI
     Nginx --> Jaeger
 
     AdminPanel --> PostgresAdmin[(postgres-admin)]
@@ -21,6 +22,7 @@ flowchart LR
     MoviesAPI --> Elasticsearch
     MoviesETL --> PostgresAdmin
     MoviesETL --> Elasticsearch
+    UGCAPI --> Kafka[(Kafka)]
 ```
 
 | Service | Role |
@@ -29,11 +31,13 @@ flowchart LR
 | **auth_api** | FastAPI identity service — users, roles, RS256 JWT, Yandex ID OAuth |
 | **movies_api** | FastAPI read API — catalog from Elasticsearch with Redis cache |
 | **movies_etl** | Syncs catalog data from PostgreSQL to Elasticsearch indexes |
+| **ugc_api** | Flask event ingestion — validates user activity events and publishes them to Kafka |
 | **nginx** | Reverse proxy, rate limiting, static files *(production mode only)* |
 | **jaeger-tracer** | OpenTelemetry trace storage and UI |
 | **postgres-admin** / **postgres-auth** | Separate databases for content and auth |
 | **redis** | Rate limiting (auth) and response cache (movies) |
 | **elastic-db** | Search indexes: `movies`, `genres`, `persons` |
+| **kafka** | Event bus for UGC analytics — topics `ugc-events` and `ugc-anonymous-events` |
 | **clickhouse_profiler** | ClickHouse benchmarking toolkit — runs standalone; example results are served via nginx in production mode |
 
 Each application lives in a Git submodule. See [`.gitmodules`](.gitmodules) for source repositories.
@@ -59,7 +63,7 @@ Each application lives in a Git submodule. See [`.gitmodules`](.gitmodules) for 
    git submodule update --init --recursive
    ```
 
-2. Generate JWT keys (required by auth, admin panel, and movies API):
+2. Generate JWT keys (required by auth, admin panel, movies API, and UGC API):
 
    ```bash
    mkdir -p auth-certs
@@ -88,7 +92,7 @@ docker compose down          # stop and remove containers
 
 - **nginx** listens on port **80** and routes all traffic
 - Application containers are **not** exposed to the host directly
-- Rate limiting on `/movies/api/` — 1 request/s per IP, bucket of 5 (`limit_req` in nginx)
+- Rate limiting on `/movies/api/` — 3 requests/s per IP, burst of 5 (`limit_req zone=one`); on `/ugc/api/` — 5 requests/s per IP, burst of 5 (`limit_req zone=two`)
 - Jaeger UI is served under `/tracer/` (via `QUERY_BASE_PATH`)
 - Static admin assets are served from `/static/`
 
@@ -101,6 +105,9 @@ docker compose down          # stop and remove containers
 | http://127.0.0.1/auth/api/docs | Auth OpenAPI (Swagger UI) |
 | http://127.0.0.1/movies/api/ | Movies API |
 | http://127.0.0.1/movies/api/docs | Movies OpenAPI (Swagger UI) |
+| http://127.0.0.1/ugc/api/v1/events | UGC API — ingest authenticated user events |
+| http://127.0.0.1/ugc/api/v1/anonymous-events | UGC API — ingest anonymous user events |
+| http://127.0.0.1/ugc/api/docs/swagger | UGC OpenAPI (Swagger UI) |
 | http://127.0.0.1/tracer/ | Jaeger UI |
 | http://127.0.0.1/architecture/pre-ugc/ | Architecture docs (current stage) |
 | http://127.0.0.1/clickhouse/profiler/results | ClickHouse profiler — download example results archive (`results_example.tar.gz`) |
@@ -133,11 +140,14 @@ docker compose -f docker-compose.dev.yml down
 | http://127.0.0.1:8080 | Admin OpenAPI (Swagger UI) |
 | http://127.0.0.1:8002/docs | Auth API OpenAPI |
 | http://127.0.0.1:8001/docs | Movies API OpenAPI |
+| http://127.0.0.1:8003/openapi/swagger | UGC API OpenAPI |
 | http://127.0.0.1:16686 | Jaeger UI |
+| http://127.0.0.1:8081 | Kafka UI |
 | localhost:5432 | postgres-admin |
 | localhost:5433 | postgres-auth |
 | localhost:6379 | Redis |
 | localhost:9200 | Elasticsearch |
+| localhost:29092 | Kafka (host listener) |
 
 ### Hybrid local development
 
@@ -203,6 +213,19 @@ The `architecture-renderer` container runs `scripts/render_project_schemas.sh`. 
 
 The current stage is **pre-ugc** — the integrated platform before user-generated content is added. See [architecture-raw/pre-ugc/README.md](architecture-raw/pre-ugc/README.md) for the full description.
 
+## UGC API
+
+[`ugc_api/`](ugc_api/) is the **event ingestion layer** for user-generated content analytics. Frontend clients send behavioral events — clicks, page views, movie interactions, search filters — over HTTP. The service validates each payload, verifies JWTs for authenticated users, and publishes accepted events to Kafka for downstream processing.
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `POST /ugc/api/v1/events` | Bearer JWT | Ingest one authenticated user event (`user_id` must match token `sub`) |
+| `POST /ugc/api/v1/anonymous-events` | None | Ingest one anonymous event (client-generated `anonymous_id`) |
+
+Authenticated events go to the `ugc-events` topic (partition key: `user_id`); anonymous events go to `ugc-anonymous-events` (partition key: `anonymous_id`). Kafka topics are created automatically on stack startup by the `kafka-init` job.
+
+Environment for the integrated stack lives in [`env-files/.env.ugc-api`](env-files/.env.ugc-api). For API details, supported event types, curl examples, and functional tests, see [ugc_api/README.md](ugc_api/README.md).
+
 ## ClickHouse profiler
 
 [`clickhouse_profiler/`](clickhouse_profiler/) is a standalone ClickHouse benchmarking toolkit used to profile workloads. It ships its own Compose stack (ClickHouse, synthetic dataset loader, and a scenario-based profiler CLI) and is **not** started by the main `docker compose up` command.
@@ -228,7 +251,8 @@ The endpoint is static file delivery only — it does not run the profiler. See 
 
 - **Unified auth** — admin panel login delegates to `auth_api`; superusers registered via auth are provisioned locally on first login. A break-glass local account remains available if auth is down.
 - **Distributed tracing** — auth service exports OpenTelemetry spans to Jaeger; HTTP spans include `http.request_id` from the `X-Request-Id` header set by nginx.
-- **Rate limiting** — nginx token bucket on movies API; Redis-based per-IP limits on sensitive auth endpoints.
+- **Rate limiting** — nginx token bucket on movies API (3 req/s, burst 5) and UGC API (5 req/s, burst 5); Redis-based per-IP limits on sensitive auth endpoints.
+- **UGC event ingestion** — validated user activity events published to Kafka; separate topics and partition keys for authenticated and anonymous users.
 - **Yandex ID OAuth** — `/auth/api/yandexid/login` and `/auth/api/yandexid/token`.
 
 ## Source repositories
@@ -237,4 +261,5 @@ The endpoint is static file delivery only — it does not run the profiler. See 
 - [Movies API](https://github.com/rock4ts/Async_API_sprint_2)
 - [Admin panel](https://github.com/rock4ts/new_admin_panel_sprint_2)
 - [Auth API](https://github.com/rock4ts/Auth_sprint_1)
+- [UGC API](https://github.com/rock4ts/movies_ugc_api)
 - [Clickhouse profiler](https://github.com/rock4ts/clickhouse_profiler.git)
