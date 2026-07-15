@@ -237,7 +237,7 @@ services:
       kafka:
         condition: service_healthy
     environment:
-      KAFKA_BOOTSTRAP_SERVER: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       TOPIC_CONFIGS: ugc-events,3,1;ugc-anonymous-events,3,1
     volumes:
       - ./scripts/init_kafka_ugc.sh:/scripts/init_kafka_ugc.sh:ro
