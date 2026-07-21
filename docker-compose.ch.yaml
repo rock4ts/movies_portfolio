@@ -4,7 +4,7 @@ services:
     hostname: keeper-1
     restart: unless-stopped
     volumes:
-      - ./clickhouse_prod/keeper/keeper1.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+      - ./clickhouse/prod/keeper/keeper1.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
       - keeper_1_data:/var/lib/clickhouse-keeper
     healthcheck:
       test: ["CMD-SHELL", "clickhouse-keeper-client -h 127.0.0.1 -p 9181 -q ruok | grep -q imok"]
@@ -19,7 +19,7 @@ services:
     hostname: keeper-2
     restart: unless-stopped
     volumes:
-      - ./clickhouse_prod/keeper/keeper2.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+      - ./clickhouse/prod/keeper/keeper2.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
       - keeper_2_data:/var/lib/clickhouse-keeper
     healthcheck:
       test: ["CMD-SHELL", "clickhouse-keeper-client -h 127.0.0.1 -p 9181 -q ruok | grep -q imok"]
@@ -34,7 +34,7 @@ services:
     hostname: keeper-3
     restart: unless-stopped
     volumes:
-      - ./clickhouse_prod/keeper/keeper3.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+      - ./clickhouse/prod/keeper/keeper3.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
       - keeper_3_data:/var/lib/clickhouse-keeper
     healthcheck:
       test: ["CMD-SHELL", "clickhouse-keeper-client -h 127.0.0.1 -p 9181 -q ruok | grep -q imok"]
@@ -51,7 +51,7 @@ services:
     env_file:
       - ./env-files/.env.clickhouse
     volumes:
-      - ./clickhouse_prod/data/node1:/etc/clickhouse-server
+      - ./clickhouse/prod/data/node1:/etc/clickhouse-server
       - clickhouse_node1_data:/var/lib/clickhouse
     depends_on:
       keeper-1:
@@ -79,7 +79,7 @@ services:
     env_file:
       - ./env-files/.env.clickhouse
     volumes:
-      - ./clickhouse_prod/data/node2:/etc/clickhouse-server
+      - ./clickhouse/prod/data/node2:/etc/clickhouse-server
       - clickhouse_node2_data:/var/lib/clickhouse
     depends_on:
       keeper-1:
@@ -107,7 +107,7 @@ services:
     env_file:
       - ./env-files/.env.clickhouse
     volumes:
-      - ./clickhouse_prod/data/node3:/etc/clickhouse-server
+      - ./clickhouse/prod/data/node3:/etc/clickhouse-server
       - clickhouse_node3_data:/var/lib/clickhouse
     depends_on:
       keeper-1:
@@ -135,7 +135,7 @@ services:
     env_file:
       - ./env-files/.env.clickhouse
     volumes:
-      - ./clickhouse_prod/data/node4:/etc/clickhouse-server
+      - ./clickhouse/prod/data/node4:/etc/clickhouse-server
       - clickhouse_node4_data:/var/lib/clickhouse
     depends_on:
       keeper-1:
@@ -184,7 +184,7 @@ services:
         --user admin --password "$$CLICKHOUSE_ADMIN_PASSWORD"
         --multiquery < /init/02_create_event_tables.sql
     volumes:
-      - ./clickhouse_prod/init:/init:ro
+      - ./clickhouse/init:/init:ro
     depends_on:
       clickhouse-node1:
         condition: service_healthy
