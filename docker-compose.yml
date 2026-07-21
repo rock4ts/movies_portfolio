@@ -1,3 +1,6 @@
+include:
+  - ./docker-compose.clickhouse.yml
+
 services:
 
   postgres-admin:
@@ -302,6 +305,7 @@ services:
     image: nginx:latest
     ports:
       - "80:80"
+      - "8081:8081"
     volumes:
       - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
@@ -314,6 +318,8 @@ services:
         condition: service_healthy
       admin-swagger:
         condition: service_started
+      clickhouse-ui:
+        condition: service_started
       jaeger-tracer:
         condition: service_started
       movies-api:
@@ -324,6 +330,9 @@ services:
         condition: service_started
       architecture-renderer:
         condition: service_completed_successfully
+    networks:
+      - default
+      - clickhouse_net
 
 volumes:
   pg_data_admin:
