@@ -10,8 +10,7 @@ CREATE TABLE IF NOT EXISTS ugc.click_events_local ON CLUSTER ugc_cluster
 )
 ENGINE = ReplicatedMergeTree(
     '/clickhouse/tables/{shard}/ugc/click_events_local',
-    '{replica}',
-    ingested_at
+    '{replica}'
 )
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (actor_id, timestamp, event_id);
@@ -36,8 +35,7 @@ CREATE TABLE IF NOT EXISTS ugc.page_view_events_local ON CLUSTER ugc_cluster
 )
 ENGINE = ReplicatedMergeTree(
     '/clickhouse/tables/{shard}/ugc/page_view_events_local',
-    '{replica}',
-    ingested_at
+    '{replica}'
 )
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (actor_id, timestamp, event_id);
@@ -64,8 +62,7 @@ CREATE TABLE IF NOT EXISTS ugc.movie_quality_changed_events_local ON CLUSTER ugc
 )
 ENGINE = ReplicatedMergeTree(
     '/clickhouse/tables/{shard}/ugc/movie_quality_changed_events_local',
-    '{replica}',
-    ingested_at
+    '{replica}'
 )
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (movie_id, actor_id, timestamp, event_id);
@@ -90,8 +87,7 @@ CREATE TABLE IF NOT EXISTS ugc.movie_completed_events_local ON CLUSTER ugc_clust
 )
 ENGINE = ReplicatedMergeTree(
     '/clickhouse/tables/{shard}/ugc/movie_completed_events_local',
-    '{replica}',
-    ingested_at
+    '{replica}'
 )
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (movie_id, actor_id, timestamp, event_id);
@@ -116,8 +112,7 @@ CREATE TABLE IF NOT EXISTS ugc.search_filter_used_events_local ON CLUSTER ugc_cl
 )
 ENGINE = ReplicatedMergeTree(
     '/clickhouse/tables/{shard}/ugc/search_filter_used_events_local',
-    '{replica}',
-    ingested_at
+    '{replica}'
 )
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (actor_id, timestamp, event_id);
