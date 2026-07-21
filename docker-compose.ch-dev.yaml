@@ -96,7 +96,15 @@ services:
         &&
         clickhouse-client --host clickhouse-node1 --database default
         --user admin --password "$$CLICKHOUSE_ADMIN_PASSWORD"
-        --multiquery < /init/02_create_event_tables.sql
+        --multiquery < /init/02_create_raw_event_table.sql
+        &&
+        clickhouse-client --host clickhouse-node1 --database default
+        --user admin --password "$$CLICKHOUSE_ADMIN_PASSWORD"
+        --multiquery < /init/03_create_destination_event_tables.sql
+        &&
+        clickhouse-client --host clickhouse-node1 --database default
+        --user admin --password "$$CLICKHOUSE_ADMIN_PASSWORD"
+        --multiquery < /init/04_create_event_materialized_views.sql
     volumes:
       - ./clickhouse/init:/init:ro
     depends_on:

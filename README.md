@@ -249,15 +249,13 @@ The main stack includes the `ugc_cluster` ClickHouse deployment through Compose 
 
 Both modes load node-specific configuration from [`clickhouse/{prod,dev}/`](clickhouse/) and credentials from [`env-files/.env.clickhouse`](env-files/.env.clickhouse). After all ClickHouse nodes become healthy, the one-shot `clickhouse-init` service applies the SQL files in [`clickhouse/init/`](clickhouse/init/) across the cluster.
 
-The initialization creates the `ugc` database and five event table pairs:
+The initialization creates:
 
-- `click_events`
-- `page_view_events`
-- `movie_quality_changed_events`
-- `movie_completed_events`
-- `search_filter_used_events`
+- a raw ingest table pair: `events_raw_local` and distributed `events_raw` (raw rows expire after 14 days via `TTL ingested_at + INTERVAL 14 DAY DELETE`)
+- five destination event table pairs: `click_events`, `page_view_events`, `movie_quality_changed_events`, `movie_completed_events`, and `search_filter_used_events`
+- one materialized view per destination event type that reads `events_raw_local` and writes into the corresponding `<name>_local` destination table
 
-Each event type has a replicated shard-local `<name>_local` table and a distributed `<name>` table. Data is partitioned monthly, distributed by `cityHash64(actor_id)`, and ordered for actor- or movie-oriented analytical queries.
+The intended ETL write target is `ugc.events_raw`. ClickHouse then routes each row by `event_type` into typed local tables, while analytics reads continue to use the distributed destination tables. Data remains partitioned monthly, distributed by `cityHash64(actor_id)`, and ordered for actor- or movie-oriented analytical queries.
 
 ## ClickHouse profiler
 
