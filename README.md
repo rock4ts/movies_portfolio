@@ -14,6 +14,7 @@ flowchart LR
     Nginx --> AuthAPI
     Nginx --> UGCAPI
     Nginx --> Jaeger
+    Nginx --> ClickHouseUI
 
     AdminPanel --> PostgresAdmin[(postgres-admin)]
     AuthAPI --> PostgresAuth[(postgres-auth)]
@@ -23,6 +24,8 @@ flowchart LR
     MoviesETL --> PostgresAdmin
     MoviesETL --> Elasticsearch
     UGCAPI --> Kafka[(Kafka)]
+    ClickHouseUI --> ClickHouse[(ClickHouse ugc_cluster)]
+    ClickHouse --> Keeper[(ClickHouse Keeper)]
 ```
 
 | Service | Role |
@@ -38,7 +41,10 @@ flowchart LR
 | **redis** | Rate limiting (auth) and response cache (movies) |
 | **elastic-db** | Search indexes: `movies`, `genres`, `persons` |
 | **kafka** | Event bus for UGC analytics — topics `ugc-events` and `ugc-anonymous-events` |
-| **clickhouse_profiler** | ClickHouse benchmarking toolkit — runs standalone; example results are served via nginx in production mode |
+| **clickhouse** | Replicated and sharded analytical storage for five UGC event types |
+| **clickhouse-keeper** | Coordinates ClickHouse replication and distributed DDL |
+| **clickhouse-ui** | Browser UI for inspecting and querying the ClickHouse cluster |
+| **clickhouse_profiler** | Standalone clustered ClickHouse benchmark with committed example results |
 
 Each application lives in a Git submodule. See [`.gitmodules`](.gitmodules) for source repositories.
 
@@ -77,7 +83,7 @@ Each application lives in a Git submodule. See [`.gitmodules`](.gitmodules) for 
 
 ## Run modes
 
-The project ships two Compose files. They run the same services but differ in networking and how you reach them.
+The project ships two main Compose files. They run the same application services but use different ClickHouse cluster sizes and networking.
 
 ### Production — `docker-compose.yml`
 
@@ -95,6 +101,8 @@ docker compose down          # stop and remove containers
 - Rate limiting on `/movies/api/` — 3 requests/s per IP, burst of 5 (`limit_req zone=one`); on `/ugc/api/` — 5 requests/s per IP, burst of 5 (`limit_req zone=two`)
 - Jaeger UI is served under `/tracer/` (via `QUERY_BASE_PATH`)
 - Static admin assets are served from `/static/`
+- ClickHouse runs as two shards with two replicas per shard, coordinated by three Keeper nodes
+- ClickHouse server ports remain internal; nginx exposes ClickHouse UI on port **8081**
 
 | URL | Service |
 |-----|---------|
@@ -110,7 +118,7 @@ docker compose down          # stop and remove containers
 | http://127.0.0.1/ugc/api/docs/swagger | UGC OpenAPI (Swagger UI) |
 | http://127.0.0.1/tracer/ | Jaeger UI |
 | http://127.0.0.1/architecture/pre-ugc/ | Architecture docs (current stage) |
-| http://127.0.0.1/clickhouse/profiler/results | ClickHouse profiler — download example results archive (`results_example.tar.gz`) |
+| http://127.0.0.1:8081 | ClickHouse UI |
 
 ### Development — `docker-compose.dev.yml`
 
@@ -133,6 +141,7 @@ docker compose -f docker-compose.dev.yml down
 - **No nginx** — call services directly by port
 - Database, cache, and observability tools are exposed for local tools (psql, Redis CLI, etc.)
 - Jaeger UI on the default port (no `/tracer/` prefix)
+- ClickHouse runs as one shard with two replicas and one Keeper node
 
 | URL | Service |
 |-----|---------|
@@ -143,11 +152,14 @@ docker compose -f docker-compose.dev.yml down
 | http://127.0.0.1:8003/openapi/swagger | UGC API OpenAPI |
 | http://127.0.0.1:16686 | Jaeger UI |
 | http://127.0.0.1:8081 | Kafka UI |
+| http://127.0.0.1:3488 | ClickHouse UI |
 | localhost:5432 | postgres-admin |
 | localhost:5433 | postgres-auth |
 | localhost:6379 | Redis |
 | localhost:9200 | Elasticsearch |
 | localhost:29092 | Kafka (host listener) |
+| localhost:8123 / localhost:9000 | ClickHouse node 1 — HTTP / native TCP |
+| localhost:8124 / localhost:9001 | ClickHouse node 2 — HTTP / native TCP |
 
 ### Hybrid local development
 
@@ -226,9 +238,30 @@ Authenticated events go to the `ugc-events` topic (partition key: `user_id`); an
 
 Environment for the integrated stack lives in [`env-files/.env.ugc-api`](env-files/.env.ugc-api). For API details, supported event types, curl examples, and functional tests, see [ugc_api/README.md](ugc_api/README.md).
 
+## ClickHouse analytics cluster
+
+The main stack includes the `ugc_cluster` ClickHouse deployment through Compose `include` files:
+
+| Mode | Compose include | Topology | Host access |
+|------|-----------------|----------|-------------|
+| Production | [`docker-compose.ch.yaml`](docker-compose.ch.yaml) | 4 ClickHouse nodes: 2 shards × 2 replicas; 3 Keeper nodes | ClickHouse UI through nginx on `:8081` |
+| Development | [`docker-compose.ch-dev.yaml`](docker-compose.ch-dev.yaml) | 2 ClickHouse nodes: 1 shard × 2 replicas; 1 Keeper node | UI on `:3488`; HTTP/native ports exposed |
+
+Both modes load node-specific configuration from [`clickhouse/{prod,dev}/`](clickhouse/) and credentials from [`env-files/.env.clickhouse`](env-files/.env.clickhouse). After all ClickHouse nodes become healthy, the one-shot `clickhouse-init` service applies the SQL files in [`clickhouse/init/`](clickhouse/init/) across the cluster.
+
+The initialization creates the `ugc` database and five event table pairs:
+
+- `click_events`
+- `page_view_events`
+- `movie_quality_changed_events`
+- `movie_completed_events`
+- `search_filter_used_events`
+
+Each event type has a replicated shard-local `<name>_local` table and a distributed `<name>` table. Data is partitioned monthly, distributed by `cityHash64(actor_id)`, and ordered for actor- or movie-oriented analytical queries.
+
 ## ClickHouse profiler
 
-[`clickhouse_profiler/`](clickhouse_profiler/) is a standalone ClickHouse benchmarking toolkit used to profile workloads. It ships its own Compose stack (ClickHouse, synthetic dataset loader, and a scenario-based profiler CLI) and is **not** started by the main `docker compose up` command.
+[`clickhouse_profiler/`](clickhouse_profiler/) is a standalone benchmarking toolkit and is **not** started by the main `docker compose up` command. Its Compose stack mirrors the production topology with four ClickHouse nodes arranged as two replicated shards, three Keeper nodes, a synthetic dataset loader, and a scenario-based profiler.
 
 Run benchmarks locally:
 
@@ -237,15 +270,17 @@ cd clickhouse_profiler
 docker compose up --build
 ```
 
-Each scenario writes timestamped output under `results/<scenario>/<timestamp>/`. The repository includes a pre-built sample archive at `clickhouse_profiler/results_example.tar.gz`.
+The implemented `write_read` scenario sweeps writer-thread and insert-batch combinations while aggregation readers query the same distributed table. It reports ingestion throughput together with average, p95, and maximum query latency.
 
-In **production mode**, nginx exposes a download endpoint for that archive:
+Each run writes:
 
-| URL | Response |
-|-----|----------|
-| http://127.0.0.1/clickhouse/profiler/results | `application/gzip` attachment named `results_example.tar.gz` |
+```text
+results/write_read/<timestamp>/
+├── metadata.json
+└── profile.csv
+```
 
-The endpoint is static file delivery only — it does not run the profiler. See clickhouse_profiler's README.md for scenarios, configuration, and how to generate fresh results.
+Committed samples are available under [`clickhouse_profiler/results_example/`](clickhouse_profiler/results_example/). See the [profiler README](clickhouse_profiler/README.md) for workload details, configuration, and instructions for generating fresh results.
 
 ## Implemented features
 
@@ -253,6 +288,7 @@ The endpoint is static file delivery only — it does not run the profiler. See 
 - **Distributed tracing** — auth service exports OpenTelemetry spans to Jaeger; HTTP spans include `http.request_id` from the `X-Request-Id` header set by nginx.
 - **Rate limiting** — nginx token bucket on movies API (3 req/s, burst 5) and UGC API (5 req/s, burst 5); Redis-based per-IP limits on sensitive auth endpoints.
 - **UGC event ingestion** — validated user activity events published to Kafka; separate topics and partition keys for authenticated and anonymous users.
+- **ClickHouse analytics storage** — production and development clusters with replicated local tables, distributed front tables, Keeper coordination, and browser UI.
 - **Yandex ID OAuth** — `/auth/api/yandexid/login` and `/auth/api/yandexid/token`.
 
 ## Source repositories
@@ -262,4 +298,4 @@ The endpoint is static file delivery only — it does not run the profiler. See 
 - [Admin panel](https://github.com/rock4ts/new_admin_panel_sprint_2)
 - [Auth API](https://github.com/rock4ts/Auth_sprint_1)
 - [UGC API](https://github.com/rock4ts/movies_ugc_api)
-- [Clickhouse profiler](https://github.com/rock4ts/clickhouse_profiler.git)
+- [ClickHouse profiler](https://github.com/rock4ts/clickhouse_profiler.git)
