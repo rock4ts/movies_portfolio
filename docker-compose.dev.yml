@@ -1,3 +1,5 @@
+name: movies-dev
+
 include:
   - ./docker-compose.ch-dev.yaml
 

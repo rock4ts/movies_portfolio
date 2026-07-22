@@ -14,7 +14,7 @@ ENGINE = ReplicatedMergeTree(
 )
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (event_type, actor_id, timestamp, event_id)
-TTL ingested_at + INTERVAL 14 DAY DELETE;
+TTL toDateTime(ingested_at) + INTERVAL 14 DAY DELETE;
 
 CREATE TABLE IF NOT EXISTS ugc.events_raw ON CLUSTER ugc_cluster
 AS ugc.events_raw_local

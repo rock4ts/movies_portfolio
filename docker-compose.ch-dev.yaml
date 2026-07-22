@@ -1,3 +1,5 @@
+name: movies-dev-ch
+
 services:
   keeper-1:
     image: clickhouse/clickhouse-keeper:23
