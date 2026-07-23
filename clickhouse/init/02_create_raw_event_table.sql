@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS ugc.events_raw_local ON CLUSTER ugc_cluster
     ingested_at DateTime64(3, 'UTC') DEFAULT now64(3),
     payload String
 )
-ENGINE = ReplicatedMergeTree(
+ENGINE = ReplicatedReplacingMergeTree(
     '/clickhouse/tables/{shard}/ugc/events_raw_local',
     '{replica}'
 )

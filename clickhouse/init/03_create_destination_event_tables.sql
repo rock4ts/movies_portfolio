@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS ugc.click_events_local ON CLUSTER ugc_cluster
     element_id String,
     element_type LowCardinality(String)
 )
-ENGINE = ReplicatedMergeTree(
+ENGINE = ReplicatedReplacingMergeTree(
     '/clickhouse/tables/{shard}/ugc/click_events_local',
     '{replica}'
 )
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS ugc.page_view_events_local ON CLUSTER ugc_cluster
     ingested_at DateTime64(3, 'UTC') DEFAULT now64(3),
     page String
 )
-ENGINE = ReplicatedMergeTree(
+ENGINE = ReplicatedReplacingMergeTree(
     '/clickhouse/tables/{shard}/ugc/page_view_events_local',
     '{replica}'
 )
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS ugc.movie_quality_changed_events_local ON CLUSTER ugc
     previous_quality LowCardinality(String),
     new_quality LowCardinality(String)
 )
-ENGINE = ReplicatedMergeTree(
+ENGINE = ReplicatedReplacingMergeTree(
     '/clickhouse/tables/{shard}/ugc/movie_quality_changed_events_local',
     '{replica}'
 )
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS ugc.movie_completed_events_local ON CLUSTER ugc_clust
     ingested_at DateTime64(3, 'UTC') DEFAULT now64(3),
     movie_id UUID
 )
-ENGINE = ReplicatedMergeTree(
+ENGINE = ReplicatedReplacingMergeTree(
     '/clickhouse/tables/{shard}/ugc/movie_completed_events_local',
     '{replica}'
 )
@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS ugc.search_filter_used_events_local ON CLUSTER ugc_cl
     ingested_at DateTime64(3, 'UTC') DEFAULT now64(3),
     filters String
 )
-ENGINE = ReplicatedMergeTree(
+ENGINE = ReplicatedReplacingMergeTree(
     '/clickhouse/tables/{shard}/ugc/search_filter_used_events_local',
     '{replica}'
 )
