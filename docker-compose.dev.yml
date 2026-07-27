@@ -153,6 +153,24 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  ugc-etl:
+    build: ./ugc_etl
+    env_file:
+      - env-files/.env.clickhouse
+      - env-files/.env.ugc-etl
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    stop_grace_period: 60s
+    networks:
+      - default
+      - clickhouse_net
+
 
   movies-api:
     build: movies_api/
@@ -243,7 +261,7 @@ services:
         condition: service_healthy
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
-      TOPIC_CONFIGS: ugc-events,3,1;ugc-anonymous-events,3,1
+      TOPIC_CONFIGS: ugc-events,3,1;ugc-anonymous-events,3,1;ugc-events-dlq,3,1
     volumes:
       - ./scripts/init_kafka_ugc.sh:/scripts/init_kafka_ugc.sh:ro
     entrypoint:

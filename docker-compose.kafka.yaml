@@ -118,7 +118,7 @@ services:
         condition: service_healthy
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
-      TOPIC_CONFIGS: ugc-events,3,3,2,delete,604800000,3600000;ugc-anonymous-events,3,3,2,delete,259200000,3600000
+      TOPIC_CONFIGS: ugc-events,3,3,2,delete,604800000,3600000;ugc-anonymous-events,3,3,2,delete,259200000,3600000;ugc-events-dlq,3,3,2,delete,604800000,3600000
     volumes:
       - ./scripts/init_kafka_ugc.sh:/scripts/init_kafka_ugc.sh:ro
     entrypoint:

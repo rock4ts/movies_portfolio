@@ -16,3 +16,6 @@
 [submodule "ugc_api"]
 	path = ugc_api
 	url = git@github.com:rock4ts/movies_ugc_api.git
+[submodule "ugc_etl"]
+	path = ugc_etl
+	url = git@github.com:rock4ts/movies_ugc_etl.git
