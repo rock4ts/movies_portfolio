@@ -160,6 +160,24 @@ services:
       - kafka_net
       - clickhouse_net
 
+  ugc-etl-scaler:
+    build: ./ugc_etl_scaler
+    env_file:
+      - env-files/.env.ugc-etl-scaler
+    environment:
+      PROJECT_DIR: ${PWD}
+      COMPOSE_FILE: docker-compose.yml
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PWD}:${PWD}
+      - ugc_etl_scaler_state:/var/lib/ugc-etl-scaler
+    networks:
+      - kafka_net
+
   movies-api:
     build: movies_api/
     env_file:
@@ -242,3 +260,4 @@ volumes:
   etl_state:
   jaeger_data:
   schema_output:
+  ugc_etl_scaler_state:

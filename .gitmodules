@@ -19,3 +19,6 @@
 [submodule "ugc_etl"]
 	path = ugc_etl
 	url = git@github.com:rock4ts/movies_ugc_etl.git
+[submodule "ugc_etl_scaler"]
+	path = ugc_etl_scaler
+	url = git@github.com:rock4ts/movies_ugc_etl_scaler.git

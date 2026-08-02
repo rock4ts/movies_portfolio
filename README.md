@@ -1,6 +1,6 @@
 # Online Movie Theater — Integration Project
 
-Diploma project for [Yandex Practicum](https://practicum.yandex.ru/) (sprint 2). The repository wires together five application services into a single platform: content management, catalog API, authentication, ETL, and UGC event ingestion. Nginx acts as the public entry point in production mode; Jaeger collects distributed traces from the auth service.
+Diploma project for [Yandex Practicum](https://practicum.yandex.ru/) (sprint 2). The repository wires together application services into a single platform: content management, catalog API, authentication, catalog ETL, UGC event ingestion, and UGC analytics ETL with lag-based autoscaling. Nginx acts as the public entry point in production mode; Jaeger collects distributed traces from the auth service.
 
 **Author:** [Artyom Suhov](https://github.com/rock4ts)
 
@@ -24,6 +24,10 @@ flowchart LR
     MoviesETL --> PostgresAdmin
     MoviesETL --> Elasticsearch
     UGCAPI --> Kafka[(Kafka)]
+    Kafka --> UGCETL
+    UGCETL --> ClickHouse[(ClickHouse ugc_cluster)]
+    UGCETLScaler -.->|lag + watermarks| Kafka
+    UGCETLScaler -.->|scale replicas| UGCETL
     ClickHouseUI --> ClickHouse[(ClickHouse ugc_cluster)]
     ClickHouse --> Keeper[(ClickHouse Keeper)]
 ```
@@ -35,6 +39,8 @@ flowchart LR
 | **movies_api** | FastAPI read API — catalog from Elasticsearch with Redis cache |
 | **movies_etl** | Syncs catalog data from PostgreSQL to Elasticsearch indexes |
 | **ugc_api** | Flask event ingestion — validates user activity events and publishes them to Kafka |
+| **ugc_etl** | Scalable Kafka consumer — batches UGC events into ClickHouse |
+| **ugc_etl_scaler** | Production-only cron-triggered scaler — adjusts `ugc-etl` replicas from Kafka lag and ingress rate |
 | **nginx** | Reverse proxy, rate limiting, static files *(production mode only)* |
 | **jaeger-tracer** | OpenTelemetry trace storage and UI |
 | **postgres-admin** / **postgres-auth** | Separate databases for content and auth |
@@ -103,6 +109,7 @@ docker compose down          # stop and remove containers
 - Static admin assets are served from `/static/`
 - ClickHouse runs as two shards with two replicas per shard, coordinated by three Keeper nodes
 - ClickHouse server ports remain internal; nginx exposes ClickHouse UI on port **8081**
+- `ugc-etl-scaler` stays running so host cron can trigger scaling decisions with `docker compose exec`
 
 | URL | Service |
 |-----|---------|
@@ -234,9 +241,63 @@ The current stage is **pre-ugc** — the integrated platform before user-generat
 | `POST /ugc/api/v1/events` | Bearer JWT | Ingest one authenticated user event (`user_id` must match token `sub`) |
 | `POST /ugc/api/v1/anonymous-events` | None | Ingest one anonymous event (client-generated `anonymous_id`) |
 
-Authenticated events go to the `ugc-events` topic (partition key: `user_id`); anonymous events go to `ugc-anonymous-events` (partition key: `anonymous_id`). Kafka topics are created automatically on stack startup by the `kafka-init` job.
+Authenticated events go to the `ugc-events` topic (partition key: `user_id`); anonymous events go to `ugc-anonymous-events` (partition key: `anonymous_id`). Kafka topics and the `ugc-events-dlq` dead-letter topic are created automatically on stack startup by the `kafka-init` job.
 
 Environment for the integrated stack lives in [`env-files/.env.ugc-api`](env-files/.env.ugc-api). For API details, supported event types, curl examples, and functional tests, see [ugc_api/README.md](ugc_api/README.md).
+
+## UGC ETL and lag autoscaling
+
+[`ugc_etl/`](ugc_etl/) consumes both UGC topics as the `ugc-etl` consumer group. Workers validate event envelopes, batch inserts into `ugc.events_raw`, publish malformed records to `ugc-events-dlq`, and commit Kafka offsets only after all records in the batch have been handled. Delivery is at least once. The replacing ClickHouse tables eventually collapse retry duplicates with the same stable event key. Unit and functional test runbooks live in [`ugc_etl/README.md`](ugc_etl/README.md).
+
+Start one worker manually:
+
+```bash
+docker compose up -d --build --scale ugc-etl=1 ugc-etl
+```
+
+The UGC topics currently have three partitions each. [`ugc_etl_scaler/`](ugc_etl_scaler/) stays up with the production stack; host cron (or an operator) runs one scaling decision at a time via `docker compose exec`. Each run queries consumer lag and partition high watermarks directly from Kafka and changes only the `ugc-etl` replica count. Lag per partition is `high_watermark - effective_offset`, where the effective offset is the committed offset when present and otherwise the broker low watermark (`OFFSET_INVALID`, `None`, or negative) — matching the ETL consumer’s `auto.offset.reset=earliest`. Effective worker cap is `min(MAX_WORKERS, total_partitions)`.
+
+```bash
+# Keep the scaler container running in the background
+docker compose up -d --build ugc-etl-scaler
+
+# Execute one scaler decision inside that running container
+docker compose exec -T ugc-etl-scaler python -m app.main
+
+# Decision preview without changing replicas
+docker compose exec -T -e DRY_RUN=true ugc-etl-scaler python -m app.main
+```
+
+Default policy (`MIN_WORKERS=1`, `MAX_WORKERS=4`, `SINGLE_WORKER_THROUGHPUT=150000`, `ADDITIONAL_WORKER_THROUGHPUT=15000`, `TARGET_DRAIN_SECONDS=600`, `TARGET_UTILIZATION=0.8`, `SCALE_DOWN_UTILIZATION=0.6`), derived from insert-throughput measurements run with [`clickhouse_profiler/`](clickhouse_profiler/):
+
+- workers below `MIN_WORKERS` are restored before rate estimation
+- required rate = incoming Kafka rate + lag / drain window
+- capacity model: `SINGLE_WORKER_THROUGHPUT + ADDITIONAL_WORKER_THROUGHPUT × (workers - 1)`
+- scale up directly to the smallest worker count that satisfies target utilization
+- scale down one worker at a time when demand stays below scale-down utilization
+- first run (or missing baseline) stores partition high watermarks and skips demand-based scaling until the next observation
+- defaults assume one Kafka event maps to one inserted ClickHouse row
+- five-minute cooldown still suppresses frequent rescale actions
+- dry-run queries Docker and Kafka but does not change replicas or update cooldown / watermark state
+- Docker/Kafka/query failures result in no scaling change
+
+All bounds are configured in [`env-files/.env.ugc-etl-scaler`](env-files/.env.ugc-etl-scaler) through unprefixed variables such as `MIN_WORKERS`, `MAX_WORKERS`, `SINGLE_WORKER_THROUGHPUT`, `ADDITIONAL_WORKER_THROUGHPUT`, `TARGET_DRAIN_SECONDS`, `TARGET_UTILIZATION`, `SCALE_DOWN_UTILIZATION`, and `COOLDOWN_SECONDS`. Compose overrides `PROJECT_DIR` to `${PWD}` and bind-mounts that same host path.
+
+Install a once-per-minute host cron entry. Keep `ugc-etl-scaler` running as part of the stack, then execute the scaler command with `docker compose exec` each minute. The Docker socket lets the container drive the host daemon; the named volume `ugc_etl_scaler_state` keeps lock, cooldown, and watermark baseline state across runs.
+
+```cron
+* * * * * cd /absolute/path/to/movies_portfolio && /usr/local/bin/docker compose exec -T ugc-etl-scaler python -m app.main >> /tmp/ugc-etl-scaler.log 2>&1
+```
+
+`ugc-etl-scaler` is production-only in this project and is not used with the development stack.
+
+The full configuration and runbook are in [`ugc_etl_scaler/README.md`](ugc_etl_scaler/README.md).
+
+To roll back autoscaling, remove the cron entry and set the desired worker count explicitly:
+
+```bash
+docker compose up -d --no-deps --scale ugc-etl=1 ugc-etl
+```
 
 ## ClickHouse analytics cluster
 
@@ -248,6 +309,8 @@ The main stack includes the `ugc_cluster` ClickHouse deployment through Compose 
 | Development | [`docker-compose.ch-dev.yaml`](docker-compose.ch-dev.yaml) | 2 ClickHouse nodes: 1 shard × 2 replicas; 1 Keeper node | UI on `:3488`; HTTP/native ports exposed |
 
 Both modes load node-specific configuration from [`clickhouse/{prod,dev}/`](clickhouse/) and credentials from [`env-files/.env.clickhouse`](env-files/.env.clickhouse). After all ClickHouse nodes become healthy, the one-shot `clickhouse-init` service applies the SQL files in [`clickhouse/init/`](clickhouse/init/) across the cluster.
+
+The replacing-engine SQL applies when tables are first initialized. Existing MergeTree tables are not changed by `CREATE TABLE IF NOT EXISTS`; recreate or migrate existing UGC tables before relying on eventual duplicate collapse.
 
 The initialization creates:
 
@@ -286,6 +349,7 @@ Committed samples are available under [`clickhouse_profiler/results_example/`](c
 - **Distributed tracing** — auth service exports OpenTelemetry spans to Jaeger; HTTP spans include `http.request_id` from the `X-Request-Id` header set by nginx.
 - **Rate limiting** — nginx token bucket on movies API (3 req/s, burst 5) and UGC API (5 req/s, burst 5); Redis-based per-IP limits on sensitive auth endpoints.
 - **UGC event ingestion** — validated user activity events published to Kafka; separate topics and partition keys for authenticated and anonymous users.
+- **UGC analytics ETL** — lag-scaled workers batch Kafka events into ClickHouse with manual offset commits, graceful shutdown, and dead-letter handling; production `ugc-etl-scaler` adjusts replica count from Kafka lag and ingress rate.
 - **ClickHouse analytics storage** — production and development clusters with replicated local tables, distributed front tables, Keeper coordination, and browser UI.
 - **Yandex ID OAuth** — `/auth/api/yandexid/login` and `/auth/api/yandexid/token`.
 
@@ -296,4 +360,6 @@ Committed samples are available under [`clickhouse_profiler/results_example/`](c
 - [Admin panel](https://github.com/rock4ts/new_admin_panel_sprint_2)
 - [Auth API](https://github.com/rock4ts/Auth_sprint_1)
 - [UGC API](https://github.com/rock4ts/movies_ugc_api)
+- [UGC ETL](https://github.com/rock4ts/movies_ugc_etl)
+- [UGC ETL scaler](https://github.com/rock4ts/movies_ugc_etl_scaler)
 - [ClickHouse profiler](https://github.com/rock4ts/clickhouse_profiler.git)
