@@ -187,14 +187,15 @@ Copy `.env.example` to `.env.local` in each service directory before using these
 
 The repository keeps a **versioned record of how the system evolves** — not just the current state, but snapshots of the architecture at each major development stage.
 
-Each stage is a self-contained folder with PlantUML diagrams, a short README, and a static index page. When a new service or capability is added (for example, a UGC module), a new stage folder is created to document the updated architecture while earlier stages remain available for comparison.
+Each stage is a self-contained folder with PlantUML diagrams and a short README. When a new service or capability is added (for example, a UGC module), a new stage folder is created to document the updated architecture while earlier stages remain available for comparison. Shared HTML templates at the root of `architecture-raw/` are copied into every stage during render; `readme.html` loads the stage `README.md` in the browser and renders it as HTML.
 
 ```
 architecture-raw/              ← manually maintained sources (committed)
+├── index.html                 ← shared stage index (copied into each stage on render)
+├── readme.html                ← shared Markdown viewer (fetches README.md in-browser)
 ├── pre-ugc/
 │   ├── components.puml
-│   ├── README.md
-│   └── index.html
+│   └── README.md
 └── ugc/                       ← future stage
     └── …
 
@@ -202,7 +203,8 @@ architecture-rendered/         ← generated output (gitignored, not committed)
 ├── pre-ugc/
 │   ├── components.svg
 │   ├── README.md
-│   └── index.html
+│   ├── index.html             ← installed from shared template
+│   └── readme.html            ← installed from shared template
 └── …
 ```
 
@@ -210,8 +212,8 @@ architecture-rendered/         ← generated output (gitignored, not committed)
 
 | Directory | Purpose |
 |-----------|---------|
-| `architecture-raw/` | Source files edited by hand — only `.puml` diagrams, `README.md`, and `index.html` |
-| `architecture-rendered/` | Auto-generated SVGs and copied static files — listed in `.gitignore`, not committed |
+| `architecture-raw/` | Source files edited by hand — `.puml` diagrams, per-stage `README.md`, and shared root `index.html` / `readme.html` |
+| `architecture-rendered/` | Auto-generated SVGs, copied READMEs, and shared HTML installed per stage — listed in `.gitignore`, not committed |
 
 **How to generate rendered docs locally:**
 
@@ -223,7 +225,7 @@ This runs the `architecture-renderer` container once, reads from `architecture-r
 
 **How rendering works:**
 
-The `architecture-renderer` container runs `scripts/render_project_schemas.sh`. It recursively scans `architecture-raw/` for `.puml` files, renders each to SVG, and copies non-diagram files (`README.md`, `index.html`) into the output — preserving the directory structure.
+The `architecture-renderer` container runs `scripts/render_project_schemas.sh`. It recursively scans `architecture-raw/` for `.puml` files, renders each to SVG, copies non-diagram files (except the shared HTML templates) into the output, and installs `index.html` and `readme.html` into each stage directory.
 
 | Mode | Input | Output | Access |
 |------|-------|--------|--------|

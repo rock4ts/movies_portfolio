@@ -1,0 +1,75 @@
+@startuml
+!include <C4/C4_Container>
+
+title System Architecture with UGC Analytics
+
+Person(user, "Employee / End User", "Uses web interfaces, APIs, and sends activity events")
+
+System_Boundary(platform, "Online Movie Theater Platform") {
+    Container(nginx, "Nginx", "Reverse Proxy", "Single entry point, routing, and rate limiting")
+    Container(adminPanel, "admin_panel", "Django", "Content management and read API")
+    Container(adminSwagger, "admin-swagger", "Swagger UI", "Admin API documentation")
+    Container(authApi, "auth_api", "FastAPI", "Users, roles, JWT, OAuth")
+    Container(moviesApi, "movies_api", "FastAPI", "Read API with access control and cache")
+    Container(moviesEtl, "movies_etl", "Python worker", "Synchronizes catalog data to search indexes")
+
+    Container(ugcApi, "ugc_api", "Flask", "Validates authenticated and anonymous activity events and publishes them")
+    Container(kafka, "Kafka cluster", "Apache Kafka", "Durable UGC event streams and dead-letter topic")
+    Container(ugcEtl, "ugc_etl", "Python workers", "Validates, transforms, batches, and persists UGC events")
+    Container(ugcEtlScaler, "ugc_etl_scaler", "Python one-shot job", "Scales production ETL workers from Kafka demand")
+    ContainerDb(clickhouse, "ClickHouse cluster", "ClickHouse", "Raw and typed UGC analytics tables; 2 shards x 2 replicas in production")
+    Container(clickhouseUi, "clickhouse-ui", "Web UI", "Browser interface for querying ClickHouse")
+
+    ContainerDb(postgresAdmin, "postgres-admin", "PostgreSQL", "Content database")
+    ContainerDb(postgresAuth, "postgres-auth", "PostgreSQL", "Authentication and authorization database")
+    ContainerDb(redis, "Redis", "Redis", "Rate limits, token blocklist, response cache")
+    ContainerDb(elastic, "elastic-db", "Elasticsearch", "Search indexes: movies, genres, persons")
+    ContainerDb(jaeger, "jaeger-tracer", "Jaeger", "Tracing storage and UI")
+}
+
+System_Ext(yandex, "Yandex ID", "External OAuth provider")
+System_Ext(docker, "Docker Compose / Docker Engine", "Runs and scales the production service replicas")
+System_Ext(clickhouseProfiler, "clickhouse_profiler", "Standalone ClickHouse write/read benchmark; calibrates ETL scaler defaults; not in the runtime path")
+
+Rel(user, nginx, "Uses web/API endpoints and submits activity events", "HTTP")
+Rel(user, clickhouseUi, "Opens analytics query UI", "HTTP :8081")
+Rel(clickhouseProfiler, ugcEtlScaler, "Informs throughput defaults", "offline calibration")
+
+Rel(nginx, adminPanel, "/admin, /admin/api", "HTTP")
+Rel(nginx, adminSwagger, "/admin/docs", "HTTP")
+Rel(nginx, authApi, "/auth/api", "HTTP")
+Rel(nginx, moviesApi, "/movies/api", "HTTP")
+Rel(nginx, ugcApi, "/ugc/api and /ugc/api/docs", "HTTP")
+Rel(nginx, jaeger, "/tracer", "HTTP")
+
+Rel(adminPanel, postgresAdmin, "Reads and writes content", "PostgreSQL")
+Rel(adminPanel, authApi, "Delegates staff login", "HTTP")
+Rel(adminPanel, authApi, "Verifies JWT signature with shared public key", "RS256 (offline verification)")
+
+Rel(authApi, postgresAuth, "Stores users, roles, sessions, login history", "PostgreSQL")
+Rel(authApi, redis, "Rate limits and refresh token blocklist", "Redis protocol")
+Rel(authApi, jaeger, "Exports traces", "OTLP gRPC")
+Rel(authApi, yandex, "OAuth authorization and token exchange", "HTTPS")
+
+Rel(moviesApi, elastic, "Reads catalog indexes", "HTTP")
+Rel(moviesApi, redis, "Caches API responses", "Redis protocol")
+Rel(moviesApi, authApi, "Verifies JWT signature with shared public key", "RS256 (offline verification)")
+
+Rel(moviesEtl, postgresAdmin, "Extracts changed content", "PostgreSQL")
+Rel(moviesEtl, elastic, "Loads/updates search documents", "HTTP")
+
+Rel(ugcApi, authApi, "Verifies access JWT with mounted public key; no runtime call", "RS256 (offline verification)")
+Rel(ugcApi, kafka, "Produces authenticated events keyed by user_id to ugc-events", "Kafka protocol")
+Rel(ugcApi, kafka, "Produces anonymous events keyed by anonymous_id to ugc-anonymous-events", "Kafka protocol")
+Rel(ugcEtl, kafka, "Consumes both event topics as consumer group ugc-etl", "Kafka protocol")
+Rel(ugcEtl, kafka, "Publishes malformed records to ugc-events-dlq", "Kafka protocol")
+Rel(ugcEtl, clickhouse, "Batch inserts valid rows into ugc.events_raw", "Native protocol")
+Rel(clickhouse, clickhouse, "Materialized views route raw rows into typed event tables", "Internal")
+Rel(clickhouseUi, clickhouse, "Queries analytics data", "HTTP")
+
+Rel(ugcEtlScaler, kafka, "Reads consumer lag and topic watermarks", "Kafka protocol")
+Rel(ugcEtlScaler, docker, "Requests ugc_etl replica changes", "Docker socket / Compose")
+Rel(docker, ugcEtl, "Runs the selected worker replica count", "Containers")
+
+SHOW_LEGEND()
+@enduml

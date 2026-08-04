@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Architecture</title>
+</head>
+<body>
+    <nav><a href="../">← Back</a></nav>
+    <h1>Architecture</h1>
+    <ul>
+        <li><a href="components.svg">System Architecture</a></li>
+        <li><a href="readme.html">Architecture Description</a></li>
+    </ul>
+    <script>
+        const stage = location.pathname.replace(/\/+$/, "").split("/").pop() || "Architecture";
+        document.title = stage;
+        document.querySelector("h1").textContent = stage;
+    </script>
+</body>
+</html>
