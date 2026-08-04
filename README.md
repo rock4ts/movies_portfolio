@@ -1,6 +1,7 @@
 # Online Movie Theater — Integration Project
 
-Diploma project for [Yandex Practicum](https://practicum.yandex.ru/). The repository wires together application services into a single platform: content management, catalog API, authentication, catalog ETL, UGC event ingestion, and UGC analytics ETL with lag-based autoscaling. Nginx acts as the public entry point in production mode; Jaeger collects distributed traces from the auth service.
+The repository wires together application services into a single platform: content management, catalog API, authentication, catalog ETL, UGC event ingestion, and UGC analytics ETL with lag-based autoscaling. Nginx acts as the public entry point in production mode; Jaeger collects distributed traces from the auth service.
+The services are based on assignments from the Middle Python Developer course at [Yandex Practicum](https://practicum.yandex.ru/).
 
 **Author:** [Artyom Suhov](https://github.com/rock4ts)
 
@@ -167,21 +168,6 @@ docker compose -f docker-compose.dev.yml down
 | localhost:29092 | Kafka (host listener) |
 | localhost:8123 / localhost:9000 | ClickHouse node 1 — HTTP / native TCP |
 | localhost:8124 / localhost:9001 | ClickHouse node 2 — HTTP / native TCP |
-
-### Hybrid local development
-
-The `justfile` provides recipes to run individual services on the host against Docker infrastructure started with `just dev`:
-
-| Command | Description |
-|---------|-------------|
-| `just admin-local` | Django dev server |
-| `just auth-api-local` | Auth API with hot reload |
-| `just movies-api-local` | Movies API with hot reload |
-| `just etl-local` | Run ETL once |
-| `just elastic-init` | Create Elasticsearch indexes |
-| `just admin-psql` | Open psql to admin database |
-
-Copy `.env.example` to `.env.local` in each service directory before using these recipes.
 
 ## Architecture documentation
 
