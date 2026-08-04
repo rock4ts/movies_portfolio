@@ -220,7 +220,67 @@ docker compose -f docker-compose.dev.yml run --rm architecture-renderer
 
 Текущий этап — **pre-ugc**: интегрированная платформа до добавления пользовательского контента. Полное описание — в [architecture-raw/pre-ugc/README.md](architecture-raw/pre-ugc/README.md).
 
-## UGC API
+## Реализованные возможности
+
+Подразделы идут в порядке реализации: сначала CMS и read-путь каталога, затем идентичность и периметр, затем стек UGC-аналитики.
+
+### Админ-панель
+
+[`admin_panel/`](admin_panel/) — **источник истины** для метаданных фильмов: названия, описания, рейтинги, жанры и актёрский состав / съёмочная группа. Сотрудники ведут каталог в Django Admin; небольшой read-only REST API отдаёт фильмы в JSON.
+
+| Поверхность | Роль |
+|-------------|------|
+| `/admin/` | CMS для фильмов/сериалов, жанров и персон (актёры, режиссёры, сценаристы) |
+| `GET /admin/api/v1/movies/` | Постраничный список фильмов с жанрами и составом |
+| `GET /admin/api/v1/movies/<uuid>` | Один фильм по ID |
+
+Логин админки делегирует проверку учётных данных в `auth_api`. После успеха панель проверяет RS256 JWT общим публичным ключом и создаёт локального `User` (email + staff). Принимаются только токены с `is_superuser: true`. Break-glass локальный аккаунт остаётся на случай недоступности auth. Успешные входы пишутся в append-only журнал `AdminLoginLog`.
+
+Начальные данные каталога — в `database_dump.sql` (загрузка через `LOAD_DATABASE_DUMP=true` в Docker или вручную). Подробности: [admin_panel/README.md](admin_panel/README.md).
+
+### Movies ETL
+
+[`movies_etl/`](movies_etl/) непрерывно синхронизирует изменения каталога из `postgres-admin` в индексы Elasticsearch `movies`, `genres` и `persons`. Параллельные пайплайны покрывают filmwork (напрямую и по person/genre), жанры и персон. Прогресс между циклами хранится в файловом watermark (`STATE_FILE_PATH`).
+
+`PRODUCER_LIMIT` / `GENRE_PRODUCER_LIMIT` ограничивают число изменённых строк на цикл; `*_SLEEP` задают паузу между циклами (`0` — для локальной разработки). Запуск: `python -m app.main`. Подробности: [movies_etl/README.md](movies_etl/README.md).
+
+### Movies API
+
+[`movies_api/`](movies_api/) — **read-оптимизированный API каталога**. Читает индексы Elasticsearch, заполненные movies ETL, и кэширует ответы в Redis.
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/movies/api/v1/films/` | Постраничный список с фильтром по жанру и сортировкой по рейтингу |
+| `GET` | `/movies/api/v1/films/search` | Полнотекстовый поиск по названию |
+| `GET` | `/movies/api/v1/films/<uuid>` | Карточка фильма (с контролем доступа) |
+| `GET` | `/movies/api/v1/genres/` | Список жанров |
+| `GET` | `/movies/api/v1/persons/search` | Поиск персон |
+| `GET` | `/movies/api/v1/persons/<uuid>/films` | Фильмы, связанные с персоной |
+
+Карточка фильма сверяет `access_label` фильма (`free` / `premium` / `vip`) с JWT-клеймом `access_labels` вызывающего. Анонимные клиенты видят только `free`; `is_superuser=true` — без ограничений. Токены проверяются офлайн публичным ключом auth. Подробности: [movies_api/README.md](movies_api/README.md).
+
+### Auth API
+
+[`auth_api/`](auth_api/) — **слой идентичности и доступа**. Регистрирует пользователей, выдаёт RS256 access-токены и refresh-cookie, управляет ролями с `access_labels` (`free` / `premium` / `vip`) и ведёт партиционированную историю логинов.
+
+| Область | Эндпоинты |
+|---------|-----------|
+| Auth | `POST /auth/api/token`, `/refresh`, `/logout`, `/logout-others` |
+| Users | `POST /auth/api/users`, `GET /users/me`, смена email/пароля, история логинов |
+| Roles | CRUD и assign/revoke (только superuser) |
+| Яндекс ID | `GET /auth/api/yandexid/login`, `GET /auth/api/yandexid/token` |
+
+Refresh-токены блокируются через Redis; чувствительные маршруты лимитируются per-IP. Сервис экспортирует OpenTelemetry-спаны в Jaeger. Downstream-сервисы (`admin_panel`, `movies_api`, `ugc_api`) проверяют JWT локально смонтированным публичным ключом. Подробности: [auth_api/README.md](auth_api/README.md).
+
+### Периметр платформы (nginx, трейсинг, rate limiting)
+
+В production **nginx** — единая публичная точка входа на порту 80: маршрутизация на admin, auth, movies, UGC, Jaeger и ClickHouse UI, статика админки с `/static/`, заголовок `X-Request-Id` для корреляции запросов.
+
+Rate limiting — token bucket nginx: `/movies/api/` — 3 req/s на IP (burst 5); `/ugc/api/` — 5 req/s на IP (burst 5). Auth дополнительно лимитирует чувствительные эндпоинты per-IP через Redis.
+
+**Распределённый трейсинг:** `auth_api` экспортирует OTLP-спаны в Jaeger; HTTP-спаны включают `http.request_id` из заголовка `X-Request-Id` от nginx. Jaeger UI в production доступен по `/tracer/` (`QUERY_BASE_PATH`).
+
+### UGC API
 
 [`ugc_api/`](ugc_api/) — **слой приёма событий** для аналитики пользовательского контента. Фронтенд-клиенты отправляют поведенческие события — клики, просмотры страниц, взаимодействия с фильмами, поисковые фильтры — по HTTP. Сервис валидирует каждый payload, проверяет JWT для аутентифицированных пользователей и публикует принятые события в Kafka для дальнейшей обработки.
 
@@ -233,7 +293,51 @@ docker compose -f docker-compose.dev.yml run --rm architecture-renderer
 
 Окружение интегрированного стека — в [`env-files/.env.ugc-api`](env-files/.env.ugc-api). Детали API, поддерживаемые типы событий, примеры curl и функциональные тесты — в [ugc_api/README.md](ugc_api/README.md).
 
-## UGC ETL и автомасштабирование по лагу
+### Аналитический кластер ClickHouse
+
+Основной стек включает деплой ClickHouse `ugc_cluster` через Compose `include`:
+
+| Режим | Compose include | Топология | Доступ с хоста |
+|-------|-----------------|-----------|----------------|
+| Production | [`docker-compose.ch.yaml`](docker-compose.ch.yaml) | 4 ноды ClickHouse: 2 шарда × 2 реплики; 3 ноды Keeper | ClickHouse UI через nginx на `/ch-ui/` |
+| Development | [`docker-compose.ch-dev.yaml`](docker-compose.ch-dev.yaml) | 2 ноды ClickHouse: 1 шард × 2 реплики; 1 нода Keeper | UI на `:3488`; открыты HTTP/native-порты |
+
+Оба режима берут конфигурацию нод из [`clickhouse/{prod,dev}/`](clickhouse/) и учётные данные из [`env-files/.env.clickhouse`](env-files/.env.clickhouse). После того как все ноды ClickHouse становятся healthy, one-shot сервис `clickhouse-init` применяет SQL из [`clickhouse/init/`](clickhouse/init/) по всему кластеру.
+
+SQL с Replacing-движком применяется при первой инициализации таблиц. Существующие MergeTree-таблицы `CREATE TABLE IF NOT EXISTS` не меняет; перед расчётом на eventual схлопывание дубликатов пересоздайте или мигрируйте существующие UGC-таблицы.
+
+Инициализация создаёт:
+
+- пару таблиц сырого приёма: `events_raw_local` и distributed `events_raw` (сырые строки истекают через 14 дней: `TTL ingested_at + INTERVAL 14 DAY DELETE`)
+- пять пар таблиц событий назначения: `click_events`, `page_view_events`, `movie_quality_changed_events`, `movie_completed_events` и `search_filter_used_events`
+- по одному materialized view на каждый тип события назначения: читает `events_raw_local` и пишет в соответствующую `<name>_local`
+
+Целевой write-путь ETL — `ugc.events_raw`. Дальше ClickHouse маршрутизирует строки по `event_type` в типизированные локальные таблицы; аналитические чтения идут через distributed-таблицы назначения. Данные партиционированы по месяцам, распределены по `cityHash64(actor_id)` и упорядочены для аналитики по актору или фильму.
+
+### Профайлер ClickHouse
+
+[`clickhouse_profiler/`](clickhouse_profiler/) — отдельный инструментарий бенчмарков и **не** стартует командой `docker compose up` основного стека. Его Compose-стек повторяет production-топологию: четыре ноды ClickHouse как два реплицированных шарда, три ноды Keeper, загрузчик синтетического датасета и сценарный профайлер.
+
+Запуск бенчмарков локально:
+
+```bash
+cd clickhouse_profiler
+docker compose up --build
+```
+
+Сценарий `write_read` перебирает комбинации writer-thread и insert-batch, пока aggregation-ридеры запрашивают ту же distributed-таблицу. Отчёт включает throughput записи вместе со средней, p95 и максимальной latency запросов.
+
+Каждый прогон пишет:
+
+```text
+results/write_read/<timestamp>/
+├── metadata.json
+└── profile.csv
+```
+
+Закоммиченные примеры — в [`clickhouse_profiler/results_example/`](clickhouse_profiler/results_example/). Детали нагрузки, конфигурация и инструкции по генерации свежих результатов — в [README профайлера](clickhouse_profiler/README.md).
+
+### UGC ETL и автомасштабирование по лагу
 
 [`ugc_etl/`](ugc_etl/) читает оба UGC-топика как consumer group `ugc-etl`. Воркеры валидируют конверты событий, батчами вставляют данные в `ugc.events_raw`, отправляют битые записи в `ugc-events-dlq` и коммитят офсеты Kafka только после обработки всех записей батча. Доставка — at least once. Replacing-таблицы ClickHouse со временем схлопывают дубликаты повторных попыток с одним и тем же стабильным ключом события. Ранбуки unit- и функциональных тестов — в [`ugc_etl/README.md`](ugc_etl/README.md).
 
@@ -256,7 +360,13 @@ docker compose exec -T ugc-etl-scaler python -m app.main
 docker compose exec -T -e DRY_RUN=true ugc-etl-scaler python -m app.main
 ```
 
-Политика по умолчанию (`MIN_WORKERS=1`, `MAX_WORKERS=4`, `SINGLE_WORKER_THROUGHPUT=150000`, `ADDITIONAL_WORKER_THROUGHPUT=15000`, `TARGET_DRAIN_SECONDS=600`, `TARGET_UTILIZATION=0.8`, `SCALE_DOWN_UTILIZATION=0.6`), выведена из замеров insert-throughput через [`clickhouse_profiler/`](clickhouse_profiler/):
+Из замеров insert-throughput сценария `write_read` в [`clickhouse_profiler/`](clickhouse_profiler/) (примеры в [`results_example/`](clickhouse_profiler/results_example/)) выведены два параметра пропускной способности: `SINGLE_WORKER_THROUGHPUT=150000` и `ADDITIONAL_WORKER_THROUGHPUT=15000`. Прогон шёл на кластере ClickHouse профайлера по умолчанию — суммарно **8 CPU и 8 GB RAM** (4 ноды × 2 CPU / 2 GB) — с insert **batch size 50000**, как у `ETL_BATCH_SIZE` у `ugc-etl`.
+
+
+Политика по умолчанию: `MIN_WORKERS=1`, `MAX_WORKERS=4`, `SINGLE_WORKER_THROUGHPUT=150000`, `ADDITIONAL_WORKER_THROUGHPUT=15000`, `TARGET_DRAIN_SECONDS=600`, `TARGET_UTILIZATION=0.8`, `SCALE_DOWN_UTILIZATION=0.6`.
+
+
+Поведение масштабирования:
 
 - число воркеров ниже `MIN_WORKERS` восстанавливается до оценки скорости
 - требуемая скорость = входящая скорость Kafka + lag / окно drain
@@ -286,60 +396,6 @@ docker compose exec -T -e DRY_RUN=true ugc-etl-scaler python -m app.main
 ```bash
 docker compose up -d --no-deps --scale ugc-etl=1 ugc-etl
 ```
-
-## Аналитический кластер ClickHouse
-
-Основной стек включает деплой ClickHouse `ugc_cluster` через Compose `include`:
-
-| Режим | Compose include | Топология | Доступ с хоста |
-|-------|-----------------|-----------|----------------|
-| Production | [`docker-compose.ch.yaml`](docker-compose.ch.yaml) | 4 ноды ClickHouse: 2 шарда × 2 реплики; 3 ноды Keeper | ClickHouse UI через nginx на `/ch-ui/` |
-| Development | [`docker-compose.ch-dev.yaml`](docker-compose.ch-dev.yaml) | 2 ноды ClickHouse: 1 шард × 2 реплики; 1 нода Keeper | UI на `:3488`; открыты HTTP/native-порты |
-
-Оба режима берут конфигурацию нод из [`clickhouse/{prod,dev}/`](clickhouse/) и учётные данные из [`env-files/.env.clickhouse`](env-files/.env.clickhouse). После того как все ноды ClickHouse становятся healthy, one-shot сервис `clickhouse-init` применяет SQL из [`clickhouse/init/`](clickhouse/init/) по всему кластеру.
-
-SQL с Replacing-движком применяется при первой инициализации таблиц. Существующие MergeTree-таблицы `CREATE TABLE IF NOT EXISTS` не меняет; перед расчётом на eventual схлопывание дубликатов пересоздайте или мигрируйте существующие UGC-таблицы.
-
-Инициализация создаёт:
-
-- пару таблиц сырого приёма: `events_raw_local` и distributed `events_raw` (сырые строки истекают через 14 дней: `TTL ingested_at + INTERVAL 14 DAY DELETE`)
-- пять пар таблиц событий назначения: `click_events`, `page_view_events`, `movie_quality_changed_events`, `movie_completed_events` и `search_filter_used_events`
-- по одному materialized view на каждый тип события назначения: читает `events_raw_local` и пишет в соответствующую `<name>_local`
-
-Целевой write-путь ETL — `ugc.events_raw`. Дальше ClickHouse маршрутизирует строки по `event_type` в типизированные локальные таблицы; аналитические чтения идут через distributed-таблицы назначения. Данные партиционированы по месяцам, распределены по `cityHash64(actor_id)` и упорядочены для аналитики по актору или фильму.
-
-## Профайлер ClickHouse
-
-[`clickhouse_profiler/`](clickhouse_profiler/) — отдельный инструментарий бенчмарков и **не** стартует командой `docker compose up` основного стека. Его Compose-стек повторяет production-топологию: четыре ноды ClickHouse как два реплицированных шарда, три ноды Keeper, загрузчик синтетического датасета и сценарный профайлер.
-
-Запуск бенчмарков локально:
-
-```bash
-cd clickhouse_profiler
-docker compose up --build
-```
-
-Сценарий `write_read` перебирает комбинации writer-thread и insert-batch, пока aggregation-ридеры запрашивают ту же distributed-таблицу. Отчёт включает throughput записи вместе со средней, p95 и максимальной latency запросов.
-
-Каждый прогон пишет:
-
-```text
-results/write_read/<timestamp>/
-├── metadata.json
-└── profile.csv
-```
-
-Закоммиченные примеры — в [`clickhouse_profiler/results_example/`](clickhouse_profiler/results_example/). Детали нагрузки, конфигурация и инструкции по генерации свежих результатов — в [README профайлера](clickhouse_profiler/README.md).
-
-## Реализованные возможности
-
-- **Единая аутентификация** — логин админки делегируется в `auth_api`; суперпользователи, зарегистрированные через auth, провиженятся локально при первом входе. Break-glass локальный аккаунт остаётся на случай недоступности auth.
-- **Распределённый трейсинг** — сервис auth экспортирует OpenTelemetry-спаны в Jaeger; HTTP-спаны включают `http.request_id` из заголовка `X-Request-Id`, который выставляет nginx.
-- **Rate limiting** — token bucket nginx на movies API (3 req/s, burst 5) и UGC API (5 req/s, burst 5); лимиты per-IP на чувствительные эндпоинты auth через Redis.
-- **Приём UGC-событий** — валидированные события активности публикуются в Kafka; отдельные топики и ключи партиций для аутентифицированных и анонимных пользователей.
-- **UGC analytics ETL** — воркеры, масштабируемые по лагу, батчами пишут события Kafka в ClickHouse с ручным коммитом офсетов, graceful shutdown и dead-letter; production `ugc-etl-scaler` меняет число реплик по лагу Kafka и скорости входящего потока.
-- **Аналитическое хранилище ClickHouse** — production- и development-кластеры с реплицированными локальными таблицами, distributed front-таблицами, координацией Keeper и веб-UI.
-- **OAuth Яндекс ID** — `/auth/api/yandexid/login` и `/auth/api/yandexid/token`.
 
 ## Исходные репозитории
 
