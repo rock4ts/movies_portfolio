@@ -32,7 +32,6 @@ System_Ext(docker, "Docker Compose / Docker Engine", "Runs and scales the produc
 System_Ext(clickhouseProfiler, "clickhouse_profiler", "Standalone ClickHouse write/read benchmark; calibrates ETL scaler defaults; not in the runtime path")
 
 Rel(user, nginx, "Uses web/API endpoints and submits activity events", "HTTP")
-Rel(user, clickhouseUi, "Opens analytics query UI", "HTTP :8081")
 Rel(clickhouseProfiler, ugcEtlScaler, "Informs throughput defaults", "offline calibration")
 
 Rel(nginx, adminPanel, "/admin, /admin/api", "HTTP")
@@ -41,6 +40,7 @@ Rel(nginx, authApi, "/auth/api", "HTTP")
 Rel(nginx, moviesApi, "/movies/api", "HTTP")
 Rel(nginx, ugcApi, "/ugc/api and /ugc/api/docs", "HTTP")
 Rel(nginx, jaeger, "/tracer", "HTTP")
+Rel(nginx, clickhouseUi, "/ch-ui", "HTTP")
 
 Rel(adminPanel, postgresAdmin, "Reads and writes content", "PostgreSQL")
 Rel(adminPanel, authApi, "Delegates staff login", "HTTP")

@@ -108,7 +108,7 @@ docker compose down          # stop and remove containers
 - Jaeger UI is served under `/tracer/` (via `QUERY_BASE_PATH`)
 - Static admin assets are served from `/static/`
 - ClickHouse runs as two shards with two replicas per shard, coordinated by three Keeper nodes
-- ClickHouse server ports remain internal; nginx exposes ClickHouse UI on port **8081**
+- ClickHouse server ports remain internal; nginx exposes ClickHouse UI under `/ch-ui/`
 - `ugc-etl-scaler` stays running so host cron can trigger scaling decisions with `docker compose exec`
 
 | URL | Service |
@@ -125,7 +125,7 @@ docker compose down          # stop and remove containers
 | http://127.0.0.1/ugc/api/docs/swagger | UGC OpenAPI (Swagger UI) |
 | http://127.0.0.1/tracer/ | Jaeger UI |
 | http://127.0.0.1/architecture/pre-ugc/ | Architecture docs (current stage) |
-| http://127.0.0.1:8081 | ClickHouse UI |
+| http://127.0.0.1/ch-ui/ | ClickHouse UI |
 
 ### Development — `docker-compose.dev.yml`
 
@@ -307,7 +307,7 @@ The main stack includes the `ugc_cluster` ClickHouse deployment through Compose 
 
 | Mode | Compose include | Topology | Host access |
 |------|-----------------|----------|-------------|
-| Production | [`docker-compose.ch.yaml`](docker-compose.ch.yaml) | 4 ClickHouse nodes: 2 shards × 2 replicas; 3 Keeper nodes | ClickHouse UI through nginx on `:8081` |
+| Production | [`docker-compose.ch.yaml`](docker-compose.ch.yaml) | 4 ClickHouse nodes: 2 shards × 2 replicas; 3 Keeper nodes | ClickHouse UI through nginx at `/ch-ui/` |
 | Development | [`docker-compose.ch-dev.yaml`](docker-compose.ch-dev.yaml) | 2 ClickHouse nodes: 1 shard × 2 replicas; 1 Keeper node | UI on `:3488`; HTTP/native ports exposed |
 
 Both modes load node-specific configuration from [`clickhouse/{prod,dev}/`](clickhouse/) and credentials from [`env-files/.env.clickhouse`](env-files/.env.clickhouse). After all ClickHouse nodes become healthy, the one-shot `clickhouse-init` service applies the SQL files in [`clickhouse/init/`](clickhouse/init/) across the cluster.

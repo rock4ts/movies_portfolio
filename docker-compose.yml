@@ -223,7 +223,6 @@ services:
     image: nginx:latest
     ports:
       - "80:80"
-      - "8081:8081"
     volumes:
       - ./nginx/default.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro

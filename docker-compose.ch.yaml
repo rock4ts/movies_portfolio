@@ -161,6 +161,7 @@ services:
     restart: unless-stopped
     environment:
       CLICKHOUSE_URL: http://clickhouse-node1:8123
+      APP_URL: http://localhost/ch-ui
     volumes:
       - clickhouse_ui_data:/app/data
     depends_on:

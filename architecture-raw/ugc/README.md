@@ -115,7 +115,6 @@ Kafka partitions.
 - `clickhouse_profiler` is shown as a side service: a standalone benchmarking
   stack used to calibrate scaler capacity. It is not started with the main
   platform and is not part of the runtime request or event path.
-- `clickhouse-ui` is exposed separately on port `8081`, not routed through
-  Nginx.
+- `clickhouse-ui` is routed through Nginx at `/ch-ui/`.
 - The DLQ preserves malformed records for investigation, but automated replay
   or remediation is outside this stage.
