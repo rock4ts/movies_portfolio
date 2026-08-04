@@ -1,6 +1,6 @@
 # Online Movie Theater — Integration Project
 
-Diploma project for [Yandex Practicum](https://practicum.yandex.ru/) (sprint 2). The repository wires together application services into a single platform: content management, catalog API, authentication, catalog ETL, UGC event ingestion, and UGC analytics ETL with lag-based autoscaling. Nginx acts as the public entry point in production mode; Jaeger collects distributed traces from the auth service.
+Diploma project for [Yandex Practicum](https://practicum.yandex.ru/). The repository wires together application services into a single platform: content management, catalog API, authentication, catalog ETL, UGC event ingestion, and UGC analytics ETL with lag-based autoscaling. Nginx acts as the public entry point in production mode; Jaeger collects distributed traces from the auth service.
 
 **Author:** [Artyom Suhov](https://github.com/rock4ts)
 
@@ -358,9 +358,9 @@ Committed samples are available under [`clickhouse_profiler/results_example/`](c
 ## Source repositories
 
 - [Integration repo](https://github.com/rock4ts/movies_portfolio)
-- [Movies API](https://github.com/rock4ts/Async_API_sprint_2)
-- [Admin panel](https://github.com/rock4ts/new_admin_panel_sprint_2)
-- [Auth API](https://github.com/rock4ts/Auth_sprint_1)
+- [Movies API](https://github.com/rock4ts/movies_api.git)
+- [Admin panel](https://github.com/rock4ts/movies_admin_panel.git)
+- [Auth API](https://github.com/rock4ts/movies_auth_api.git)
 - [UGC API](https://github.com/rock4ts/movies_ugc_api)
 - [UGC ETL](https://github.com/rock4ts/movies_ugc_etl)
 - [UGC ETL scaler](https://github.com/rock4ts/movies_ugc_etl_scaler)
