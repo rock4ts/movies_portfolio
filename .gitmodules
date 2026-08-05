@@ -25,3 +25,18 @@
 [submodule "billing_service"]
 	path = billing_service
 	url = git@github.com:rock4ts/movies_billing.git
+[submodule "email_api"]
+	path = email_api
+	url = git@github.com:rock4ts/movies_email_api.git
+[submodule "email_dispatcher"]
+	path = email_dispatcher
+	url = git@github.com:rock4ts/movies_email_dispatcher.git
+[submodule "notification_api"]
+	path = notification_api
+	url = git@github.com:rock4ts/movies_notification_api.git
+[submodule "notification_ws"]
+	path = notification_ws
+	url = git@github.com:rock4ts/movies_notification_ws.git
+[submodule "ugc_api_mongo"]
+	path = ugc_api_mongo
+	url = git@github.com:rock4ts/movies_ugc_api_mongo.git
