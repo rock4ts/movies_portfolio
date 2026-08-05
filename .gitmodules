@@ -22,3 +22,6 @@
 [submodule "ugc_etl_scaler"]
 	path = ugc_etl_scaler
 	url = git@github.com:rock4ts/movies_ugc_etl_scaler.git
+[submodule "billing_service"]
+	path = billing_service
+	url = git@github.com:rock4ts/movies_billing.git
