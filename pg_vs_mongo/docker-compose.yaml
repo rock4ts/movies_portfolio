@@ -1,0 +1,46 @@
+services:
+  pg_users:
+    container_name: pg_users
+    build:
+      context: ./pg_users
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_USER=testuser
+      - POSTGRES_PASSWORD=testpass
+      - POSTGRES_DB=testdb
+    volumes:
+      - pg_users_data:/var/lib/postgresql/data
+
+  pg_ugc:
+    container_name: pg_ugc
+    build:
+      context: ./pg_ugc
+    ports:
+      - 5433:5432
+    environment:
+      - POSTGRES_USER=testuser
+      - POSTGRES_PASSWORD=testpass
+      - POSTGRES_DB=testdb
+    volumes:
+      - pg_ugc_data:/var/lib/postgresql/data
+
+  mongo_ugc:
+    container_name: mongo_db
+    image: mongo
+    ports:
+      - 27017:27017
+    volumes:
+      - mongo_data:/data/db
+
+  mongo-init:
+    build:
+      context: ./mongo_ugc
+    depends_on:
+      - mongo_ugc
+    entrypoint: ["/bin/bash", "-c", "./wait-for-it.sh mongo_db:27017 -t 60 -- ./init_mongo.sh"]
+
+volumes:
+  pg_users_data:
+  pg_ugc_data:
+  mongo_data:

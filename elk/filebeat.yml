@@ -1,0 +1,89 @@
+json_common: &json_common
+  json:
+    keys_under_root: true
+    add_error_key: true
+
+filebeat.inputs:
+  - type: filestream
+    enabled: true
+    paths:
+      - /var/log/nginx/*
+    <<: *json_common
+    tags:
+      ["nginx"]
+
+  - type: filestream
+    enabled: true
+    paths:
+      - /var/log/auth_app/*.log
+    <<: *json_common
+    tags:
+      ["auth_app"]
+
+  - type: filestream
+    enabled: true
+    paths:
+      - /var/log/content_app/*.log
+    <<: *json_common
+    tags:
+      ["content_app"]
+
+  - type: filestream
+    enabled: true
+    paths:
+      - /var/log/content_etl/*.log
+    <<: *json_common
+    tags:
+      ["content_etl"]
+
+  - type: filestream
+    enabled: true
+    paths:
+      - /var/log/admin_app/*.log
+    <<: *json_common
+    tags:
+      ["admin_app"]
+
+  - type: filestream
+    enabled: true
+    paths:
+      - /var/log/ugc_app/*.log
+    <<: *json_common
+    tags:
+      ["ugc_app"]
+
+  - type: filestream
+    enabled: true
+    paths:
+      - /var/log/ugc_etl/*.log
+    <<: *json_common
+    tags:
+      ["ugc_etl"]
+
+  - type: filestream
+    enabled: true
+    paths:
+      - /var/log/ugc_api/*.log
+    <<: *json_common
+    tags:
+      ["ugc_api"]
+
+  - type: filestream
+    enabled: true
+    paths:
+      - /var/log/websocker_server/*.log
+    <<: *json_common
+    tags:
+      ["websocker_server"]
+
+  - type: filestream
+    enabled: true
+    paths:
+      - /var/log/email_worker/*.log
+    <<: *json_common
+    tags:
+      ["email_worker"]
+
+output.logstash:
+  enabled: true
+  hosts: ["logstash:5045"]
