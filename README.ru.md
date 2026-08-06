@@ -52,8 +52,17 @@ flowchart LR
 | **clickhouse-keeper** | Координация репликации ClickHouse и распределённого DDL |
 | **clickhouse-ui** | Веб-UI для просмотра и запросов к кластеру ClickHouse |
 | **clickhouse_profiler** | Отдельный бенчмарк кластерного ClickHouse с зафиксированными примерами результатов |
+| **pg_vs_mongo** | Отдельный микробенчмарк PostgreSQL vs MongoDB для UGC с зафиксированными результатами latency |
+| **billing_service** | Платежи и возвраты через ЮKassa — FastAPI API + poller статусов *(в процессе доработки)* |
+| **email_api** | FastAPI-приём задач на отправку email в RabbitMQ *(в процессе доработки)* |
+| **email_dispatcher** | Асинхронный SMTP-воркер — консьюмер RabbitMQ, статус доставки в MongoDB *(в процессе доработки)* |
+| **notification_api** | FastAPI-события уведомлений и короткие ссылки — producer в RabbitMQ, PostgreSQL *(в процессе доработки)* |
+| **notification_ws** | WebSocket-доставка уведомлений с JWT-аутентификацией *(в процессе доработки)* |
+| **ugc_api_mongo** | FastAPI UGC API на MongoDB — лайки, рецензии, закладки *(в процессе доработки)* |
 
 Каждое приложение живёт в Git-сабмодуле. Источники — в [`.gitmodules`](.gitmodules).
+
+> **В процессе доработки:** `billing_service`, `email_api`, `email_dispatcher`, `notification_api`, `notification_ws` и `ugc_api_mongo` уже подключены как сабмодули и активно дорабатываются. В основные стеки `docker-compose.yml` / `docker-compose.dev.yml` они **ещё не интегрированы**.
 
 ## Требования
 
@@ -222,7 +231,7 @@ docker compose -f docker-compose.dev.yml run --rm architecture-renderer
 
 ## Реализованные возможности
 
-Подразделы идут в порядке реализации: сначала CMS и read-путь каталога, затем идентичность и периметр, затем стек UGC-аналитики.
+Подразделы идут в порядке реализации: сначала CMS и read-путь каталога, затем идентичность и периметр, затем стек UGC-аналитики. Сервисы, которые ещё дорабатываются и интегрируются, перечислены в конце в разделе [В процессе доработки](#в-процессе-доработки--биллинг-уведомления-email-ugc-на-mongodb).
 
 ### Админ-панель
 
@@ -337,6 +346,21 @@ results/write_read/<timestamp>/
 
 Закоммиченные примеры — в [`clickhouse_profiler/results_example/`](clickhouse_profiler/results_example/). Детали нагрузки, конфигурация и инструкции по генерации свежих результатов — в [README профайлера](clickhouse_profiler/README.md).
 
+### Бенчмарк PostgreSQL vs MongoDB для UGC
+
+[`pg_vs_mongo/`](pg_vs_mongo/) — отдельный микробенчмарк и **не** стартует командой `docker compose up` основного стека. Сравнивает PostgreSQL 15 и MongoDB на одинаковой UGC-нагрузке — лайки, рецензии и закладки — с генерацией синтетических данных (до ~10 млн лайков), сопоставимыми индексами и пятью latency-сценариями.
+
+Запуск бенчмарка локально:
+
+```bash
+cd pg_vs_mongo
+docker compose up -d
+python populate.py
+python load_testing.py
+```
+
+Результаты пишутся в `load_test_results.json`. Закоммиченный пример лежит в том же каталоге. Исследование обосновало выбор polyglot persistence для UGC (MongoDB для лайков/дизлайков; PostgreSQL для рецензий и закладок). Детали и выводы по сценариям — в [pg_vs_mongo/README.md](pg_vs_mongo/README.md).
+
 ### UGC ETL и автомасштабирование по лагу
 
 [`ugc_etl/`](ugc_etl/) читает оба UGC-топика как consumer group `ugc-etl`. Воркеры валидируют конверты событий, батчами вставляют данные в `ugc.events_raw`, отправляют битые записи в `ugc-events-dlq` и коммитят офсеты Kafka только после обработки всех записей батча. Доставка — at least once. Replacing-таблицы ClickHouse со временем схлопывают дубликаты повторных попыток с одним и тем же стабильным ключом события. Ранбуки unit- и функциональных тестов — в [`ugc_etl/README.md`](ugc_etl/README.md).
@@ -397,6 +421,21 @@ docker compose exec -T -e DRY_RUN=true ugc-etl-scaler python -m app.main
 docker compose up -d --no-deps --scale ugc-etl=1 ugc-etl
 ```
 
+### В процессе доработки — биллинг, уведомления, email, UGC на MongoDB
+
+Следующие сервисы недавно добавлены как Git-сабмодули. Они **находятся в процессе доработки и пока не интегрированы** в основные Compose-стеки (`docker-compose.yml`, `docker-compose.dev.yml`). Маршрутизация через nginx, общие env-файлы и сквозная интеграция в платформу ещё в работе. Каждый сервис можно изучать в своём каталоге (у части есть локальный Compose).
+
+| Сервис | Роль |
+|--------|------|
+| [`billing_service/`](billing_service/) | API платежей и возвратов с интеграцией ЮKassa, Redis, RabbitMQ и фоновым poller статусов |
+| [`email_api/`](email_api/) | FastAPI-эндпоинт, ставящий задачи на отправку email в очередь RabbitMQ |
+| [`email_dispatcher/`](email_dispatcher/) | Асинхронный воркер RabbitMQ: отправка через SMTP и фиксация статуса в MongoDB (topic routing, DLX/DLQ, ограниченные повторы) |
+| [`notification_api/`](notification_api/) | FastAPI REST API событий уведомлений и коротких ссылок — PostgreSQL/Alembic и producer в RabbitMQ |
+| [`notification_ws/`](notification_ws/) | WebSocket-сервер: потребляет сообщения уведомлений и доставляет их JWT-аутентифицированным клиентам |
+| [`ugc_api_mongo/`](ugc_api_mongo/) | FastAPI UGC API на MongoDB для лайков, рецензий и закладок (CRUD/upsert, пагинация, агрегация рейтингов) |
+
+Сопутствующие черновики той же волны работ (тоже вне основного стека): [`elk/`](elk/) (черновики конфигов Filebeat/Logstash для централизованного логирования).
+
 ## Исходные репозитории
 
 - [Интеграционный репозиторий](https://github.com/rock4ts/movies_portfolio)
@@ -407,3 +446,9 @@ docker compose up -d --no-deps --scale ugc-etl=1 ugc-etl
 - [UGC ETL](https://github.com/rock4ts/movies_ugc_etl)
 - [UGC ETL scaler](https://github.com/rock4ts/movies_ugc_etl_scaler)
 - [ClickHouse profiler](https://github.com/rock4ts/clickhouse_profiler.git)
+- [Billing service](https://github.com/rock4ts/movies_billing.git)
+- [Email API](https://github.com/rock4ts/movies_email_api.git)
+- [Email dispatcher](https://github.com/rock4ts/movies_email_dispatcher.git)
+- [Notification API](https://github.com/rock4ts/movies_notification_api.git)
+- [Notification WebSocket](https://github.com/rock4ts/movies_notification_ws.git)
+- [UGC API Mongo](https://github.com/rock4ts/movies_ugc_api_mongo.git)
