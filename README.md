@@ -49,6 +49,9 @@ flowchart LR
 | **postgres-admin** / **postgres-auth** | Отдельные БД для контента и аутентификации |
 | **redis** | Rate limiting (auth) и кэш ответов (movies) |
 | **elastic-db** | Поисковые индексы: `movies`, `genres`, `persons` |
+| **elastic-db-elk** | Отдельный Elasticsearch для централизованных логов приложений |
+| **filebeat** / **logstash** | Сбор JSON-логов auth/movies API и маршрутизация в дневные индексы |
+| **kibana** | UI для поиска и анализа логов, доступный через nginx |
 | **kafka** | Шина событий для UGC-аналитики — топики `ugc-events` и `ugc-anonymous-events` |
 | **clickhouse** | Реплицированное и шардированное аналитическое хранилище для пяти типов UGC-событий |
 | **clickhouse-keeper** | Координация репликации ClickHouse и распределённого DDL |
@@ -118,6 +121,7 @@ docker compose down          # остановить и удалить конте
 - Контейнеры приложений **не** проброшены на хост напрямую
 - Rate limiting на `/movies/api/` — 3 запроса/с на IP, burst 5 (`limit_req zone=one`); на `/ugc/api/` — 5 запросов/с на IP, burst 5 (`limit_req zone=two`)
 - UI Jaeger доступен по `/tracer/` (через `QUERY_BASE_PATH`)
+- Kibana доступна по `/logs/`; порт 5601 наружу не публикуется
 - Статика админки отдаётся с `/static/`
 - ClickHouse: два шарда по две реплики, координируются тремя нодами Keeper
 - Порты серверов ClickHouse остаются внутренними; nginx отдаёт ClickHouse UI по `/ch-ui/`
@@ -136,6 +140,7 @@ docker compose down          # остановить и удалить конте
 | http://127.0.0.1/ugc/api/v1/anonymous-events | UGC API — приём анонимных событий |
 | http://127.0.0.1/ugc/api/docs/swagger | OpenAPI UGC (Swagger UI) |
 | http://127.0.0.1/tracer/ | Jaeger UI |
+| http://127.0.0.1/logs/ | Kibana — поиск и анализ логов auth/movies API |
 | http://127.0.0.1/architecture/pre-ugc/ | Документация архитектуры (текущий этап) |
 | http://127.0.0.1/ch-ui/ | ClickHouse UI |
 
@@ -285,11 +290,13 @@ Refresh-токены блокируются через Redis; чувствите
 
 ### Периметр платформы (nginx, трейсинг, rate limiting)
 
-В production **nginx** — единая публичная точка входа на порту 80: маршрутизация на admin, auth, movies, UGC, Jaeger и ClickHouse UI, статика админки с `/static/`, заголовок `X-Request-Id` для корреляции запросов.
+В production **nginx** — единая публичная точка входа на порту 80: маршрутизация на admin, auth, movies, UGC, Jaeger, Kibana и ClickHouse UI, статика админки с `/static/`, заголовок `X-Request-Id` для корреляции запросов.
 
 Rate limiting — token bucket nginx: `/movies/api/` — 3 req/s на IP (burst 5); `/ugc/api/` — 5 req/s на IP (burst 5). Auth дополнительно лимитирует чувствительные эндпоинты per-IP через Redis.
 
 **Распределённый трейсинг:** `auth_api` экспортирует OTLP-спаны в Jaeger; HTTP-спаны включают `http.request_id` из заголовка `X-Request-Id` от nginx. Jaeger UI в production доступен по `/tracer/` (`QUERY_BASE_PATH`).
+
+**Централизованные логи:** `auth_api` и `movies_api` пишут newline-delimited JSON в отдельные именованные тома с multiprocess-safe ротацией (10 МБ на файл, 7 резервных файлов по умолчанию). Filebeat читает тома в режиме `filestream`, Logstash направляет события в отдельные дневные индексы `auth-api-YYYY.MM.dd` и `movies-api-YYYY.MM.dd` кластера `elastic-db-elk`. Kibana доступна только через nginx по `/logs/`; прямой порт 5601 не публикуется. У auth-событий сохраняются `request.id`, `trace.id` и `span.id`, поэтому логи можно сопоставлять с запросами и Jaeger-трейсами.
 
 ### UGC API
 
@@ -437,8 +444,6 @@ docker compose up -d --no-deps --scale ugc-etl=1 ugc-etl
 | [`notification_api/`](notification_api/) | FastAPI REST API событий уведомлений и коротких ссылок — PostgreSQL/Alembic и producer в RabbitMQ |
 | [`notification_ws/`](notification_ws/) | WebSocket-сервер: потребляет сообщения уведомлений и доставляет их JWT-аутентифицированным клиентам |
 | [`ugc_api_mongo/`](ugc_api_mongo/) | FastAPI UGC API на MongoDB для лайков, рецензий и закладок (CRUD/upsert, пагинация, агрегация рейтингов) |
-
-Сопутствующие черновики той же волны работ (тоже вне основного стека): [`elk/`](elk/) (черновики конфигов Filebeat/Logstash для централизованного логирования).
 
 ## Исходные репозитории
 

@@ -1,6 +1,7 @@
 include:
   - ./docker-compose.ch.yaml
   - ./docker-compose.kafka.yaml
+  - ./docker-compose.elk.yml
 
 services:
 
@@ -189,6 +190,7 @@ services:
         condition: service_healthy
     volumes:
       - ./auth-certs/jwt-public.pem:/run/secrets/jwt/jwt-public.pem:ro
+      - movies_api_logs:/var/log/movies-api
     restart: unless-stopped
 
   auth-api:
@@ -204,6 +206,7 @@ services:
         condition: service_started
     volumes:
       - ./auth-certs:/run/secrets/jwt:ro
+      - auth_api_logs:/var/log/auth-api
 
   ugc-api:
     build: ugc_api/
@@ -239,6 +242,8 @@ services:
         condition: service_started
       jaeger-tracer:
         condition: service_started
+      kibana:
+        condition: service_started
       movies-api:
         condition: service_started
       auth-api:
@@ -250,6 +255,7 @@ services:
     networks:
       - default
       - clickhouse_net
+      - elk_net
 
 volumes:
   pg_data_admin:
