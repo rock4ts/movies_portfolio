@@ -416,7 +416,9 @@ Install a once-per-minute host cron entry. Keep `ugc-etl-scaler` running as part
 
 `ugc-etl-scaler` is production-only in this project and is not used with the development stack.
 
-The full configuration and runbook are in [`ugc_etl_scaler/README.md`](ugc_etl_scaler/README.md).
+The full configuration, unit and functional test runbooks, and details of how
+GitHub Actions runs those tests are in
+[`ugc_etl_scaler/README.md`](ugc_etl_scaler/README.md).
 
 To roll back autoscaling, remove the cron entry and set the desired worker count explicitly:
 

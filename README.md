@@ -415,7 +415,9 @@ docker compose exec -T -e DRY_RUN=true ugc-etl-scaler python -m app.main
 
 `ugc-etl-scaler` в этом проекте только для production и не используется с development-стеком.
 
-Полная конфигурация и ранбук — в [`ugc_etl_scaler/README.md`](ugc_etl_scaler/README.md).
+Полная конфигурация, ранбуки unit- и функциональных тестов и описание запуска
+этих тестов в GitHub Actions — в
+[`ugc_etl_scaler/README.md`](ugc_etl_scaler/README.md).
 
 Чтобы откатить автомасштабирование, удалите запись cron и явно задайте число воркеров:
 
