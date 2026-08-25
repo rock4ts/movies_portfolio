@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-Репозиторий объединяет прикладные сервисы в единую платформу: управление контентом, API каталога, аутентификация, ETL каталога, приём UGC-событий и аналитический UGC ETL с автомасштабированием по лагу. Nginx — публичная точка входа в production-режиме; Jaeger собирает распределённые трейсы сервиса аутентификации.
+Репозиторий объединяет прикладные сервисы в единую платформу: управление контентом, API каталога, аутентификация, ETL каталога, приём UGC-событий и аналитический UGC ETL с автомасштабированием по лагу. Nginx — публичная точка входа в production-режиме; Jaeger собирает распределённые трейсы сервиса аутентификации, Sentry — необработанные ошибки auth и movies API.
 В основу сервисов легли задания из курса Мидл Python-разработчик [Яндекс Практикума](https://practicum.yandex.ru/)
 
 **Автор:** [Артём Сухов](https://github.com/rock4ts)
@@ -17,6 +17,7 @@ flowchart LR
     Nginx --> AuthAPI
     Nginx --> UGCAPI
     Nginx --> Jaeger
+    Nginx --> Sentry
     Nginx --> ClickHouseUI
 
     AdminPanel --> PostgresAdmin[(postgres-admin)]
@@ -46,6 +47,7 @@ flowchart LR
 | **ugc_etl_scaler** | Скейлер только для production (по cron) — меняет число реплик `ugc-etl` по лагу Kafka и скорости входящего потока |
 | **nginx** | Обратный прокси, rate limiting, статика *(только production)* |
 | **jaeger-tracer** | Хранение OpenTelemetry-трейсов и UI |
+| **sentry** | Self-hosted мониторинг ошибок auth/movies API |
 | **postgres-admin** / **postgres-auth** | Отдельные БД для контента и аутентификации |
 | **redis** | Rate limiting (auth) и кэш ответов (movies) |
 | **elastic-db** | Поисковые индексы: `movies`, `genres`, `persons` |
@@ -100,7 +102,9 @@ flowchart LR
 
 3. Docker Compose читает окружение из `env-files/`. Файлы закоммичены с дефолтами для разработки; при необходимости поправьте учётные данные или настройки OAuth.
 
-4. При первом запуске загрузите начальные данные каталога в БД админки (см. [admin_panel/README.md](admin_panel/README.md)).
+4. Добавьте `127.0.0.1 sentry.localhost` в `/etc/hosts`, чтобы открыть UI Sentry.
+
+5. При первом запуске загрузите начальные данные каталога в БД админки (см. [admin_panel/README.md](admin_panel/README.md)).
 
 ## Режимы запуска
 
@@ -122,6 +126,7 @@ docker compose down          # остановить и удалить конте
 - Rate limiting на `/movies/api/` — 3 запроса/с на IP, burst 5 (`limit_req zone=one`); на `/ugc/api/` — 5 запросов/с на IP, burst 5 (`limit_req zone=two`)
 - UI Jaeger доступен по `/tracer/` (через `QUERY_BASE_PATH`)
 - Kibana доступна по `/logs/`; порт 5601 наружу не публикуется
+- UI Sentry доступен по `http://sentry.localhost/` (добавьте `127.0.0.1 sentry.localhost` в `/etc/hosts`)
 - Статика админки отдаётся с `/static/`
 - ClickHouse: два шарда по две реплики, координируются тремя нодами Keeper
 - Порты серверов ClickHouse остаются внутренними; nginx отдаёт ClickHouse UI по `/ch-ui/`
@@ -141,6 +146,7 @@ docker compose down          # остановить и удалить конте
 | http://127.0.0.1/ugc/api/docs/swagger | OpenAPI UGC (Swagger UI) |
 | http://127.0.0.1/tracer/ | Jaeger UI |
 | http://127.0.0.1/logs/ | Kibana — поиск и анализ логов auth/movies API |
+| http://sentry.localhost/ | Sentry — мониторинг ошибок |
 | http://127.0.0.1/architecture/pre-ugc/ | Документация архитектуры (текущий этап) |
 | http://127.0.0.1/ch-ui/ | ClickHouse UI |
 
@@ -165,6 +171,7 @@ docker compose -f docker-compose.dev.yml down
 - **Без nginx** — сервисы вызываются напрямую по портам
 - БД, кэш и инструменты наблюдаемости открыты для локальных утилит (psql, Redis CLI и т.д.)
 - Jaeger UI на стандартном порту (без префикса `/tracer/`)
+- Sentry в этом стеке не поднимается — UI и ingest только в production Compose
 - ClickHouse: один шард с двумя репликами и одной нодой Keeper
 
 | URL | Сервис |
@@ -297,6 +304,8 @@ Rate limiting — token bucket nginx: `/movies/api/` — 3 req/s на IP (burst 
 **Распределённый трейсинг:** `auth_api` экспортирует OTLP-спаны в Jaeger; HTTP-спаны включают `http.request_id` из заголовка `X-Request-Id` от nginx. Jaeger UI в production доступен по `/tracer/` (`QUERY_BASE_PATH`).
 
 **Централизованные логи:** `auth_api` и `movies_api` пишут newline-delimited JSON в отдельные именованные тома с multiprocess-safe ротацией (10 МБ на файл, 7 резервных файлов по умолчанию). Filebeat читает тома в режиме `filestream`, Logstash направляет события в отдельные дневные индексы `auth-api-YYYY.MM.dd` и `movies-api-YYYY.MM.dd` кластера `elastic-db-elk`. Kibana доступна только через nginx по `/logs/`; прямой порт 5601 не публикуется. У auth-событий сохраняются `request.id`, `trace.id` и `span.id`, поэтому логи можно сопоставлять с запросами и Jaeger-трейсами.
+
+**Мониторинг ошибок:** `auth_api` и `movies_api` отправляют необработанные ошибки в отдельные проекты локального Sentry. Стек Sentry поднимается вместе с production Compose (`docker-compose.sentry.yaml`). Скопируйте полный DSN нужного проекта из UI по `http://sentry.localhost/`, замените только хост на внутренний Docker-адрес `sentry-api:9000` (project ID в пути оставьте как в UI), вставьте результат в `env-files/.env.auth` или `env-files/.env.movies` и задайте `SENTRY_ENABLED=true`. Ключи проектов нельзя переносить в `.env.example`. Performance tracing в Sentry отключён; Jaeger остаётся трейс-бэкендом auth.
 
 ### UGC API
 

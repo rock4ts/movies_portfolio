@@ -2,7 +2,7 @@
 
 [Русский](README.md)
 
-The repository wires together application services into a single platform: content management, catalog API, authentication, catalog ETL, UGC event ingestion, and UGC analytics ETL with lag-based autoscaling. Nginx acts as the public entry point in production mode; Jaeger collects distributed traces from the auth service.
+The repository wires together application services into a single platform: content management, catalog API, authentication, catalog ETL, UGC event ingestion, and UGC analytics ETL with lag-based autoscaling. Nginx acts as the public entry point in production mode; Jaeger collects distributed traces from the auth service, and Sentry collects unhandled errors from the auth and movies APIs.
 The services are based on assignments from the Middle Python Developer course at [Yandex Practicum](https://practicum.yandex.ru/).
 
 **Author:** [Artyom Suhov](https://github.com/rock4ts)
@@ -17,6 +17,7 @@ flowchart LR
     Nginx --> AuthAPI
     Nginx --> UGCAPI
     Nginx --> Jaeger
+    Nginx --> Sentry
     Nginx --> ClickHouseUI
 
     AdminPanel --> PostgresAdmin[(postgres-admin)]
@@ -46,6 +47,7 @@ flowchart LR
 | **ugc_etl_scaler** | Production-only cron-triggered scaler — adjusts `ugc-etl` replicas from Kafka lag and ingress rate |
 | **nginx** | Reverse proxy, rate limiting, static files *(production mode only)* |
 | **jaeger-tracer** | OpenTelemetry trace storage and UI |
+| **sentry** | Self-hosted error monitoring for the auth and movies APIs |
 | **postgres-admin** / **postgres-auth** | Separate databases for content and auth |
 | **redis** | Rate limiting (auth) and response cache (movies) |
 | **elastic-db** | Search indexes: `movies`, `genres`, `persons` |
@@ -97,7 +99,9 @@ Each application lives in a Git submodule. See [`.gitmodules`](.gitmodules) for 
 
 3. Docker Compose reads environment from `env-files/`. These files are committed with development defaults; adjust credentials or OAuth settings there if needed.
 
-4. Load initial catalog data into the admin database on first run (see [admin_panel/README.md](admin_panel/README.md)).
+4. Add `127.0.0.1 sentry.localhost` to `/etc/hosts` so the Sentry UI is reachable.
+
+5. Load initial catalog data into the admin database on first run (see [admin_panel/README.md](admin_panel/README.md)).
 
 ## Run modes
 
@@ -118,6 +122,7 @@ docker compose down          # stop and remove containers
 - Application containers are **not** exposed to the host directly
 - Rate limiting on `/movies/api/` — 3 requests/s per IP, burst of 5 (`limit_req zone=one`); on `/ugc/api/` — 5 requests/s per IP, burst of 5 (`limit_req zone=two`)
 - Jaeger UI is served under `/tracer/` (via `QUERY_BASE_PATH`)
+- Sentry UI is served at `http://sentry.localhost/` (add `127.0.0.1 sentry.localhost` to `/etc/hosts`)
 - Static admin assets are served from `/static/`
 - ClickHouse runs as two shards with two replicas per shard, coordinated by three Keeper nodes
 - ClickHouse server ports remain internal; nginx exposes ClickHouse UI under `/ch-ui/`
@@ -136,6 +141,7 @@ docker compose down          # stop and remove containers
 | http://127.0.0.1/ugc/api/v1/anonymous-events | UGC API — ingest anonymous user events |
 | http://127.0.0.1/ugc/api/docs/swagger | UGC OpenAPI (Swagger UI) |
 | http://127.0.0.1/tracer/ | Jaeger UI |
+| http://sentry.localhost/ | Sentry error monitoring |
 | http://127.0.0.1/architecture/pre-ugc/ | Architecture docs (current stage) |
 | http://127.0.0.1/ch-ui/ | ClickHouse UI |
 
@@ -160,6 +166,7 @@ docker compose -f docker-compose.dev.yml down
 - **No nginx** — call services directly by port
 - Database, cache, and observability tools are exposed for local tools (psql, Redis CLI, etc.)
 - Jaeger UI on the default port (no `/tracer/` prefix)
+- Sentry is not part of this stack — use production Compose for the UI and ingest
 - ClickHouse runs as one shard with two replicas and one Keeper node
 
 | URL | Service |
@@ -290,6 +297,8 @@ In production mode, **nginx** is the single public entry point on port 80: it ro
 Rate limiting uses nginx token buckets: `/movies/api/` at 3 req/s per IP (burst 5); `/ugc/api/` at 5 req/s per IP (burst 5). Auth adds Redis-based per-IP limits on sensitive endpoints.
 
 **Distributed tracing:** `auth_api` exports OTLP spans to Jaeger; HTTP spans include `http.request_id` from the nginx `X-Request-Id` header. Jaeger UI is served under `/tracer/` in production (`QUERY_BASE_PATH`).
+
+**Error monitoring:** `auth_api` and `movies_api` report unhandled errors to separate projects in the self-hosted Sentry instance. The Sentry stack starts with production Compose (`docker-compose.sentry.yaml`). Copy the full DSN for each project from the UI at `http://sentry.localhost/`, replace only its host with the Docker-internal `sentry-api:9000` (keep the project ID from the UI DSN), put it in `env-files/.env.auth` or `env-files/.env.movies`, and set `SENTRY_ENABLED=true`. Project keys must not be copied into `.env.example` files. Sentry performance tracing is disabled; Jaeger remains the trace backend for auth.
 
 ### UGC API
 
