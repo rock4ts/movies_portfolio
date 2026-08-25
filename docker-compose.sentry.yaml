@@ -1,0 +1,75 @@
+services:
+  pg-sentry:
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=sentry
+      - POSTGRES_USER=sentry
+      - POSTGRES_PASSWORD=sentry
+    volumes:
+      - pg_data_sentry:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentry -d sentry"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis-sentry:
+    image: redis:alpine
+    volumes:
+      - redis_data_sentry:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  sentry-init:
+    image: sentry:latest
+    platform: linux/amd64
+    env_file:
+      - env-files/.env.sentry
+    command: upgrade --noinput
+    depends_on:
+      pg-sentry:
+        condition: service_healthy
+      redis-sentry:
+        condition: service_healthy
+    restart: "no"
+
+  sentry-api:
+    image: sentry:latest
+    platform: linux/amd64
+    env_file:
+      - env-files/.env.sentry
+    depends_on:
+      sentry-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  sentry-worker:
+    image: sentry:latest
+    platform: linux/amd64
+    env_file:
+      - env-files/.env.sentry
+    command: run worker
+    depends_on:
+      sentry-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  sentry-cron:
+    image: sentry:latest
+    platform: linux/amd64
+    env_file:
+      - env-files/.env.sentry
+    command: run cron
+    depends_on:
+      sentry-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  pg_data_sentry:
+  redis_data_sentry:

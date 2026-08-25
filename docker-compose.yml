@@ -2,6 +2,7 @@ include:
   - ./docker-compose.ch.yaml
   - ./docker-compose.kafka.yaml
   - ./docker-compose.elk.yml
+  - ./docker-compose.sentry.yaml
 
 services:
 
@@ -252,6 +253,8 @@ services:
         condition: service_started
       architecture-renderer:
         condition: service_completed_successfully
+      sentry-api:
+        condition: service_started
     networks:
       - default
       - clickhouse_net
